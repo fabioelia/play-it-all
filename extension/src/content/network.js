@@ -112,7 +112,9 @@ export function createNetworkInspector(emit) {
     handle(response) {
       if (active) return parse(response);
       queued.push(response);
-      if (queued.length > MAX_QUEUED) queued.shift();
+      // A burst while the page is busy: parse the oldest now rather than drop
+      // it (it may be the title the viewer opens next).
+      if (queued.length > MAX_QUEUED) parse(queued.shift());
       schedule();
     },
     /** A player is on the page: parse what was queued, and from now on as it arrives. */
