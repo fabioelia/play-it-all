@@ -1,0 +1,72 @@
+# Turns a "Submit to the catalog" issue into a pull request.
+#
+# Repository settings needed once: Settings → Actions → General →
+# "Allow GitHub Actions to create and approve pull requests".
+name: Catalog submission
+
+on:
+  issues:
+    types: [opened, edited, labeled]
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+concurrency:
+  group: catalog-submission-${{ github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  ingest:
+    if: contains(github.event.issue.labels.*.name, 'submission') && github.event.issue.state == 'open'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # The issue body is untrusted text: it only ever reaches the script as a
+      # file read through an environment variable, never inside a shell command.
+      - name: Merge the submission into the catalog
+        id: ingest
+        env:
+          BODY: ${{ github.event.issue.body }}
+          AUTHOR: ${{ github.event.issue.user.login }}
+        run: |
+          printf '%s' "$BODY" > "$RUNNER_TEMP/issue.md"
+          if node scripts/catalog.mjs ingest "$RUNNER_TEMP/issue.md" --author "$AUTHOR" --summary "$RUNNER_TEMP/summary.md" > "$RUNNER_TEMP/out.txt" 2> "$RUNNER_TEMP/error.txt"; then
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+            head -n 1 "$RUNNER_TEMP/out.txt" | sed 's/^/title=/' >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Open a pull request
+        if: steps.ingest.outputs.ok == 'true'
+        id: pr
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: catalog/issue-${{ github.event.issue.number }}
+          commit-message: "${{ steps.ingest.outputs.title }} (#${{ github.event.issue.number }})"
+          title: "${{ steps.ingest.outputs.title }}"
+          body-path: ${{ runner.temp }}/summary.md
+          add-paths: catalog/**
+          labels: catalog
+          delete-branch: true
+      - name: Reply on the issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OK: ${{ steps.ingest.outputs.ok }}
+          PR_URL: ${{ steps.pr.outputs.pull-request-url }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: |
+          if [ "$OK" = "true" ]; then
+            { echo "Thanks! I opened $PR_URL with your submission:"; echo; cat "$RUNNER_TEMP/summary.md"; } > "$RUNNER_TEMP/reply.md"
+            gh issue edit "$ISSUE" --remove-label needs-fix || true
+          else
+            { echo "I couldn't use this submission:"; echo; echo '```'; cat "$RUNNER_TEMP/error.txt"; echo '```'; echo; echo "Edit the issue to try again."; } > "$RUNNER_TEMP/reply.md"
+            gh label create needs-fix --color d93f0b --force >/dev/null 2>&1 || true
+            gh issue edit "$ISSUE" --add-label needs-fix
+          fi
+          gh issue comment "$ISSUE" --body-file "$RUNNER_TEMP/reply.md"

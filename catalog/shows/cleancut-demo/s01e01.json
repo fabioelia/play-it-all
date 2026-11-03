@@ -1,0 +1,42 @@
+{
+  "key": "cleancut-demo/s01e01",
+  "type": "episode",
+  "series": "CleanCut Demo",
+  "season": 1,
+  "episode": 1,
+  "name": "Pilot",
+  "runtime": 90,
+  "timeline": "web",
+  "platforms": {
+    "web": {
+      "id": "demo-episode-1",
+      "offset": 0,
+      "speed": 1
+    }
+  },
+  "sync": {
+    "cues": [2, 8, 15, 21, 35, 44.5, 47, 50, 56, 60, 65, 80]
+  },
+  "segments": [
+    {
+      "on": "web",
+      "start": 20,
+      "end": 30,
+      "category": "violence",
+      "severity": 3,
+      "note": "sword fight",
+      "by": "fabioelia",
+      "id": "0y2hx83"
+    },
+    {
+      "on": "web",
+      "start": 70,
+      "end": 75,
+      "category": "gore",
+      "severity": 3,
+      "note": "aftermath",
+      "by": "fabioelia",
+      "id": "1aqgb9h"
+    }
+  ]
+}

@@ -1,9 +1,9 @@
 #!/bin/sh
-# Generates server/public/demo.webm: a 90 s test clip with burned-in labels
+# Generates demo/demo.webm: a 90 s test clip with burned-in labels
 # marking where the demo's "explicit" scenes are, plus a tone track so muting
 # is audible. Requires ffmpeg.
 set -e
-OUT="${1:-$(dirname "$0")/../server/public/demo.webm}"
+OUT="${1:-$(dirname "$0")/../demo/demo.webm}"
 ffmpeg -y -loglevel error \
   -f lavfi -i "testsrc2=size=480x270:rate=24:duration=90" \
   -f lavfi -i "sine=frequency=440:sample_rate=48000:duration=90" \

@@ -1,0 +1,37 @@
+{
+  "id": "teen-friendly",
+  "name": "Teen friendly",
+  "description": "PG-13, with violence hidden rather than skipped so the story still makes sense.",
+  "scope": "*",
+  "settings": {
+    "preset": "PG-13",
+    "thresholds": {
+      "nudity": 0,
+      "sex": 1,
+      "violence": 2,
+      "gore": 1,
+      "language": 2,
+      "drugs": 2,
+      "frightening": 3
+    },
+    "actions": {
+      "nudity": "skip",
+      "sex": "skip",
+      "violence": "blur",
+      "gore": "skip",
+      "language": "mute",
+      "drugs": "skip",
+      "frightening": "skip"
+    },
+    "ai": {
+      "enabled": true,
+      "minConfidence": 0.6
+    },
+    "languageMode": "line"
+  },
+  "author": "fabioelia",
+  "overrides": {
+    "include": [],
+    "exclude": []
+  }
+}

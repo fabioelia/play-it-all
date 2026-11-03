@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFile, execFileSync, spawnSync } from 'node:child_process';
-import { createServer } from 'node:http';
 import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -9,13 +8,12 @@ import { fileURLToPath } from 'node:url';
 import { scoresToSegments } from '../scanner/src/timeline.js';
 import { heuristicClassifier, parseLabelMap } from '../scanner/src/classifiers.js';
 import { sampleFrames } from '../scanner/src/frames.js';
-import { createApp } from '../server/src/app.js';
-import { openDb } from '../server/src/db.js';
 
 const series = (values, category = 'nudity') => values.map((p, i) => ({ time: i, scores: { [category]: p } }));
 const hasFfmpeg = spawnSync('ffmpeg', ['-version']).status === 0;
 // The CLI talks to an in-process server, so it must not block our event loop.
 const runCli = (args) => new Promise((resolve) => execFile(process.execPath, [cli, ...args], { encoding: 'utf8' }, (err, stdout, stderr) => resolve({ status: err ? err.code ?? 1 : 0, stdout, stderr })));
+const catalogCli = fileURLToPath(new URL('../scripts/catalog.mjs', import.meta.url));
 const cli = fileURLToPath(new URL('../scanner/src/cli.js', import.meta.url));
 
 test('scoresToSegments: hysteresis bridges a dip, padding, severity from peak', () => {
@@ -71,23 +69,22 @@ test('video pipeline finds a synthetic scene and publishes it', { skip: !hasFfmp
   assert.ok(nud[0].end >= 8 && nud[0].end <= 10.5, `end ${nud[0].end}`);
   assert.ok(nud[0].confidence <= 0.5);
 
-  // publish to a live server
-  const server = createServer(createApp(openDb(':memory:'), { rateLimit: null }));
-  await new Promise((r) => server.listen(0, '127.0.0.1', r));
-  const base = `http://127.0.0.1:${server.address().port}`;
-  try {
-    const { apiKey } = await (await fetch(`${base}/v1/users`, { method: 'POST', body: JSON.stringify({ name: 'scanner-bot' }) })).json();
-    const pub = await runCli(['publish', out, '--platform', 'web', '--id', 'clip-1', '--name', 'Clip', '--server', base, '--key', apiKey]);
-    assert.equal(pub.status, 0, pub.stderr);
-    const look = await (await fetch(`${base}/v1/lookup?platform=web&id=clip-1`)).json();
-    assert.equal(look.segments.length, scan.segments.length);
-    assert.ok(look.segments.every((s) => s.source === 'scanner'));
-    const missing = await runCli(['publish', out, '--server', base, '--key', apiKey]);
-    assert.equal(missing.status, 1);
-    assert.match(missing.stderr, /--platform and --id/);
-  } finally {
-    server.close();
-  }
+  // export a catalog submission and merge it into an empty catalog
+  const subFile = join(dir, 'submission.json');
+  const exp = await runCli(['export', out, '--platform', 'web', '--id', 'clip-1', '--name', 'Clip', '--year', '2026', '-o', subFile]);
+  assert.equal(exp.status, 0, exp.stderr);
+  const submission = JSON.parse((await import('node:fs')).readFileSync(subFile, 'utf8'));
+  assert.equal(submission.cleancut, 1);
+  assert.ok(submission.segments.every((x) => x.source === 'scanner' && x.confidence <= 0.5));
+  const catalogDir = join(dir, 'catalog');
+  const ingest = spawnSync(process.execPath, [catalogCli, 'ingest', subFile, '--dir', catalogDir, '--author', 'scanner-bot'], { encoding: 'utf8' });
+  assert.equal(ingest.status, 0, ingest.stderr);
+  const film = JSON.parse((await import('node:fs')).readFileSync(join(catalogDir, 'movies/clip-2026.json'), 'utf8'));
+  assert.equal(film.segments.length, submission.segments.length);
+  assert.ok(film.segments.every((x) => x.source === 'scanner'));
+  const missing = await runCli(['export', out]);
+  assert.equal(missing.status, 1);
+  assert.match(missing.stderr, /--platform and --id/);
 });
 
 test('subtitle scan CLI', () => {

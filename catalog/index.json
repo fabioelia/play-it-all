@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "generated": "2026-11-03T03:43:00.340Z",
+  "counts": {
+    "shows": 1,
+    "movies": 0,
+    "episodes": 1,
+    "segments": 2,
+    "lists": 2
+  },
+  "titles": {
+    "cleancut-demo": {
+      "type": "show",
+      "name": "CleanCut Demo",
+      "year": null,
+      "ids": {},
+      "episodes": {
+        "s01e01": {
+          "name": "Pilot",
+          "path": "shows/cleancut-demo/s01e01.json",
+          "segments": 2,
+          "categories": [
+            "violence",
+            "gore"
+          ],
+          "platforms": [
+            "web"
+          ],
+          "unsynced": []
+        }
+      }
+    }
+  },
+  "aliases": {},
+  "platforms": {
+    "web:demo-episode-1": "cleancut-demo/s01e01"
+  },
+  "lists": [
+    {
+      "id": "family-night",
+      "name": "Family movie night",
+      "description": "PG everywhere: no nudity, sex or gore, mild language and peril only.",
+      "author": "fabioelia",
+      "scope": "*",
+      "preset": "PG",
+      "path": "lists/family-night.json"
+    },
+    {
+      "id": "teen-friendly",
+      "name": "Teen friendly",
+      "description": "PG-13, with violence hidden rather than skipped so the story still makes sense.",
+      "author": "fabioelia",
+      "scope": "*",
+      "preset": "PG-13",
+      "path": "lists/teen-friendly.json"
+    }
+  ]
+}

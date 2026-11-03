@@ -1,0 +1,37 @@
+{
+  "id": "family-night",
+  "name": "Family movie night",
+  "description": "PG everywhere: no nudity, sex or gore, mild language and peril only.",
+  "scope": "*",
+  "settings": {
+    "preset": "PG",
+    "thresholds": {
+      "nudity": 0,
+      "sex": 0,
+      "violence": 1,
+      "gore": 0,
+      "language": 1,
+      "drugs": 1,
+      "frightening": 2
+    },
+    "actions": {
+      "nudity": "skip",
+      "sex": "skip",
+      "violence": "skip",
+      "gore": "skip",
+      "language": "mute",
+      "drugs": "skip",
+      "frightening": "skip"
+    },
+    "ai": {
+      "enabled": true,
+      "minConfidence": 0.6
+    },
+    "languageMode": "line"
+  },
+  "author": "fabioelia",
+  "overrides": {
+    "include": [],
+    "exclude": []
+  }
+}

@@ -43,9 +43,9 @@ export function requireFfmpeg(purpose) {
   }
 }
 
-/** server/public/demo.webm is generated, not committed. */
+/** demo/demo.webm is generated, not committed. */
 export function ensureDemoVideo() {
-  const file = join(root, 'server/public/demo.webm');
+  const file = join(root, 'demo/demo.webm');
   if (!existsSync(file)) {
     requireFfmpeg('generate the demo video');
     execFileSync('sh', [join(root, 'scripts/make-demo-video.sh')], { stdio: 'inherit' });

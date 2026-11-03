@@ -4,15 +4,18 @@
 // Streaming services encrypt their video (DRM), so a browser extension cannot
 // look at the frames. This tool runs the visual models offline, on a file you
 // have lawful access to (your own rip, a screener, a broadcast recording), and
-// publishes machine-detected segments to the community database, where they
-// show up as suggestions until people confirm them.
+// exports machine-detected segments as a catalog submission. Submitted to the
+// GitHub catalog, they show up as suggestions until people confirm them.
 //
 //   cleancut-scan subtitles <file.srt|vtt|dfxp> [--word]
 //   cleancut-scan video <file> [--model <dir|file.onnx> --map nsfw=nudity] [--subs <file>]
 //                              [--fps 1] [--threshold 0.6] [--start s] [--end s]
-//   cleancut-scan publish <scan.json> --platform netflix --id 70248288
-//                              [--series .. --season .. --episode .. --name ..]
-//                              [--server http://localhost:8787] [--key cc_...]
+//   cleancut-scan export <scan.json> --platform netflix --id 70248288
+//                              --series .. --season .. --episode ..  (or --name .. --year .. for a film)
+//
+// export writes a submission: paste it into the "Submit to the catalog" issue
+// form, or merge it locally with `node scripts/catalog.mjs ingest`. Times must
+// be on that platform's clock (same edition, same start).
 //
 // Output is JSON on stdout (use -o file to write it); progress goes to stderr.
 
@@ -22,6 +25,8 @@ import { analyzeCues } from '../../shared/analyzer.js';
 import { parseSubtitles } from '../../shared/subtitles.js';
 import { validateSegment } from '../../shared/validate.js';
 import { formatTime } from '../../shared/identity.js';
+import { fingerprint } from '../../shared/align.js';
+import { submissionKey } from '../../shared/catalog.js';
 import { heuristicClassifier, onnxClassifier, parseLabelMap } from './classifiers.js';
 import { probeDuration, sampleFrames } from './frames.js';
 import { scoresToSegments } from './timeline.js';
@@ -46,8 +51,7 @@ const { values: opt, positionals } = parseArgs({
     season: { type: 'string' },
     episode: { type: 'string' },
     name: { type: 'string' },
-    server: { type: 'string', default: process.env.CLEANCUT_SERVER || 'http://localhost:8787' },
-    key: { type: 'string', default: process.env.CLEANCUT_API_KEY },
+    year: { type: 'string' },
     output: { type: 'string', short: 'o' },
     help: { type: 'boolean', short: 'h' },
   },
@@ -71,7 +75,7 @@ function summarize(segments) {
 function scanSubtitles(file) {
   const cues = parseSubtitles(readFileSync(file, 'utf8'));
   if (!cues.length) throw new Error(`no cues found in ${file} (supported: SRT, WebVTT, TTML/DFXP)`);
-  return { cues, segments: analyzeCues(cues, { languageMode: opt.word ? 'word' : 'line' }) };
+  return { cues, sync: fingerprint(cues), segments: analyzeCues(cues, { languageMode: opt.word ? 'word' : 'line' }) };
 }
 
 async function scanVideo(file) {
@@ -107,34 +111,28 @@ async function scanVideo(file) {
   return { duration, classifier: classifier.name, fps, threshold, segments, samples: samples.length };
 }
 
-async function publish(file) {
-  if (!opt.platform || !opt.id) throw new Error('publish needs --platform and --id (the platform\'s video id the times were measured against)');
-  if (!opt.key) throw new Error('publish needs --key (or CLEANCUT_API_KEY); create an account in the extension options');
+function exportSubmission(file) {
+  if (!opt.platform || !opt.id) throw new Error('export needs --platform and --id (the video id on the service whose clock the times match)');
   const scan = JSON.parse(readFileSync(file, 'utf8'));
   const segments = (scan.segments || []).map((s, i) => {
-    const v = validateSegment({ ...s, source: s.source === 'subtitles' ? 'subtitles' : 'scanner' });
+    const v = validateSegment({ ...s, source: 'scanner' });
     if (!v.ok) throw new Error(`segment ${i}: ${v.error}`);
-    return v.segment;
+    const { start, end, category, severity, note, confidence } = v.segment;
+    return { start, end, category, severity, ...(note ? { note } : {}), source: 'scanner', confidence };
   });
-  if (!segments.length) throw new Error('nothing to publish');
+  if (!segments.length) throw new Error('nothing to export');
+  const num = (v) => (v == null ? undefined : Number(v));
   const title = {
     platform: opt.platform,
     platformId: opt.id,
-    series: opt.series,
-    season: opt.season,
-    episode: opt.episode,
-    name: opt.name,
-    duration: scan.duration,
+    ...(opt.series ? { series: opt.series, season: num(opt.season), episode: num(opt.episode) } : {}),
+    ...(opt.name ? { name: opt.name } : {}),
+    ...(opt.year ? { year: num(opt.year) } : {}),
+    ...(scan.duration ? { runtime: Math.round(scan.duration) } : {}),
   };
-  const res = await fetch(`${opt.server.replace(/\/+$/, '')}/v1/segments`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${opt.key}` },
-    body: JSON.stringify({ title, segments }),
-  });
-  const body = await res.json();
-  if (!res.ok) throw new Error(body.error || `HTTP ${res.status}`);
-  log(`published ${body.ids.length} segments for ${body.title.titleKey}${body.title.canonicalKey ? ` (${body.title.canonicalKey})` : ''}`);
-  return body;
+  submissionKey(title); // fail early if the title cannot be identified
+  log(`submission for ${title.platform}:${title.platformId} with ${segments.length} machine-detected segments${scan.sync ? ` and ${scan.sync.length} sync cues` : ''}`);
+  return { cleancut: 1, title, ...(scan.sync ? { sync: scan.sync } : {}), segments };
 }
 
 async function main() {
@@ -147,20 +145,21 @@ async function main() {
     const { cues, segments } = scanSubtitles(file);
     log(`${cues.length} cues → ${segments.length} segments`);
     summarize(segments);
-    emit({ source: 'subtitles', file, segments });
+    emit({ source: 'subtitles', file, sync: fingerprint(cues), segments });
   } else if (cmd === 'video') {
     const result = await scanVideo(file);
     if (opt.subs) {
       const subs = scanSubtitles(opt.subs);
       result.segments = [...result.segments, ...subs.segments].sort((a, b) => a.start - b.start);
+      result.sync = subs.sync; // lets the catalog sync other services to this file's clock
     }
     log(`${result.segments.length} segments`);
     summarize(result.segments);
     emit({ source: 'scanner', file, ...result });
-  } else if (cmd === 'publish') {
-    emit(await publish(file));
+  } else if (cmd === 'export') {
+    emit(exportSubmission(file));
   } else {
-    throw new Error(`unknown command "${cmd}" — use subtitles, video or publish`);
+    throw new Error(`unknown command "${cmd}" — use subtitles, video or export`);
   }
 }
 

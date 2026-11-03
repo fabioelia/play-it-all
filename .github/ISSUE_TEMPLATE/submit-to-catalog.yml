@@ -1,0 +1,40 @@
+name: Submit to the catalog
+description: Add content tags for an episode or film, or publish a skip list. A bot turns this into a pull request.
+title: "[catalog] "
+labels: ["submission"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for contributing! The easiest way to fill this in is from the CleanCut extension:
+        tag scenes while you watch (`Alt+[` / `Alt+]`), then use **Share on GitHub** in the popup,
+        which opens this form already filled in.
+
+        After you submit, a bot checks the JSON, merges it into the right file in `catalog/`
+        and opens a pull request. If something is wrong it replies here; edit this issue to retry.
+  - type: textarea
+    id: submission
+    attributes:
+      label: Submission
+      description: The JSON exported by the extension (or written by hand; see CONTRIBUTING.md).
+      render: json
+      placeholder: |
+        {
+          "cleancut": 1,
+          "title": { "platform": "netflix", "platformId": "70248288", "series": "Game of Thrones", "season": 1, "episode": 1 },
+          "segments": [ { "start": 1210, "end": 1290, "category": "sex", "severity": 3, "note": "optional" } ]
+        }
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Notes for reviewers
+      description: Anything worth knowing, e.g. which region or edition you watched.
+  - type: checkboxes
+    id: terms
+    attributes:
+      label: Confirmation
+      options:
+        - label: I timed these tags myself while watching (or ran the CleanCut scanner on a copy I am allowed to use). They contain timestamps and descriptions only, no copied subtitles or video.
+          required: true
