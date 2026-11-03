@@ -6,12 +6,22 @@ import { copyFileSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { deflateSync } from 'node:zlib';
+import { execFileSync } from 'node:child_process';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const src = join(here, 'src');
 const dist = join(here, 'dist');
 const pkg = JSON.parse(await (await import('node:fs/promises')).readFile(join(here, '..', 'package.json'), 'utf8'));
 const watch = process.argv.includes('--watch');
+
+// Build stamp: which commit this build came from, so a recording or a bug
+// report can be matched to the code that produced it.
+let commit = 'unknown';
+try {
+  commit = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: here, encoding: 'utf8' }).trim();
+  if (execFileSync('git', ['status', '--porcelain', '--', 'extension', 'shared'], { cwd: here, encoding: 'utf8' }).trim()) commit += '+changes';
+} catch { /* not a git checkout */ }
+const BUILD = `${pkg.version} (${commit}, ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC)`;
 
 const STREAMING = [
   'https://www.netflix.com/*',
@@ -51,6 +61,7 @@ function manifest(target) {
   } else {
     m.background = { service_worker: 'background.js' };
     m.minimum_chrome_version = '111';
+    m.version_name = `${pkg.version} (${commit})`; // shown on chrome://extensions
   }
   return m;
 }
@@ -148,6 +159,7 @@ for (const target of ['chrome', 'firefox']) {
     format: 'iife',
     target: target === 'chrome' ? ['chrome111'] : ['firefox128'],
     legalComments: 'none',
+    define: { __CLEANCUT_BUILD__: JSON.stringify(BUILD) },
     logLevel: 'warning',
   };
   if (watch) {
@@ -158,4 +170,4 @@ for (const target of ['chrome', 'firefox']) {
     await esbuild.build(options);
   }
 }
-console.log(`Built CleanCut ${pkg.version} → ${dist}/{chrome,firefox}${watch ? ' (watching)' : ''}`);
+console.log(`Built CleanCut ${BUILD} → ${dist}/{chrome,firefox}${watch ? ' (watching)' : ''}`);

@@ -15,6 +15,9 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
   if (window.__cleancutContent) return;
   window.__cleancutContent = true;
 
+  // Which build is running (see extension/build.mjs): check it in the page's console.
+  console.info(`CleanCut ${__CLEANCUT_BUILD__}`);
+
   const TICK_MS = 100;
   const IDENTIFY_MS = 1000;
   const label = (id) => CATEGORIES.find((c) => c.id === id)?.label || id;
