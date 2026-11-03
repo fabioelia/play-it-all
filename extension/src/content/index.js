@@ -10,6 +10,7 @@ import { CATEGORIES, SEVERITIES, defaultProfile, describeProfile } from '../../.
 import { segmentsFor, referenceCues } from '../../../shared/catalog.js';
 import { alignCues, fingerprint } from '../../../shared/align.js';
 import { detectAdapter } from './adapters.js';
+import { createNetworkInspector } from './network.js';
 import { CATEGORY_COLORS, Overlay } from './overlay.js';
 
 (() => {
@@ -287,10 +288,17 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
     if (found) overlay.toast(`Scanned ahead: ${found} possible issue${found === 1 ? '' : 's'} found in subtitles`, { ms: 3500, color: '#7cb342' });
   }
 
+  // Responses the page hook forwarded are parsed here, after the player has
+  // started, not in the hook at document_start.
+  const inspectResponse = createNetworkInspector((type, payload) => {
+    if (type === 'subtitles') handleSubtitles(payload);
+    else adapter.onPageMessage(type, payload);
+  });
+
   window.addEventListener('message', (e) => {
     if (e.source !== window || e.data?.__cleancut !== 'page') return;
     const { type, payload } = e.data;
-    if (type === 'subtitles' && typeof payload?.text === 'string') handleSubtitles(payload);
+    if (type === 'response' && payload) inspectResponse(payload);
     else if (type === 'seek-result') {
       const resolve = pendingSeeks.get(payload?.reqId);
       if (resolve) {
