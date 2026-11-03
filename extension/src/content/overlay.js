@@ -97,23 +97,45 @@ export class Overlay {
       const now = performance.now();
       if (now - this.lastReveal > 250) this.reveal(); // mousemove fires ~60×/s
     };
-    document.addEventListener('mousemove', this.onMove, { passive: true });
-    document.addEventListener('fullscreenchange', () => {
+    this.onFullscreen = () => {
       this.attach();
       this.remeasure();
-    });
+    };
+    this.onResize = () => this.remeasure();
     // Re-measure only when the video's box changes, never by polling: reading
     // layout while the player's controls are animating forces a synchronous
     // layout of the whole page.
     this.resizeObserver = typeof ResizeObserver === 'function' ? new ResizeObserver(() => this.remeasure()) : null;
     this.lastPlayheadAt = 0;
-    this.attach();
+    this.attached = false;
+    // Nothing is added to the page until there is a player to cover: attach()
+    // is called once a video is found, detach() when it goes away.
   }
 
   attach() {
+    if (!this.attached) {
+      this.attached = true;
+      document.addEventListener('mousemove', this.onMove, { passive: true });
+      document.addEventListener('fullscreenchange', this.onFullscreen);
+      window.addEventListener('resize', this.onResize);
+    }
     // In fullscreen only the fullscreen element's subtree is visible.
     const parent = document.fullscreenElement || document.documentElement;
     if (this.host.parentNode !== parent) parent.appendChild(this.host);
+  }
+
+  /** No player any more (single-page navigation away from it): leave the page as it was. */
+  detach() {
+    if (!this.attached) return;
+    this.attached = false;
+    document.removeEventListener('mousemove', this.onMove);
+    document.removeEventListener('fullscreenchange', this.onFullscreen);
+    window.removeEventListener('resize', this.onResize);
+    clearTimeout(this.hideTimer);
+    this.revealed = false;
+    this.shown = false;
+    this.root.style.display = 'none';
+    this.host.remove();
   }
 
   // ---- frame batching -----------------------------------------------------------------
@@ -345,8 +367,7 @@ export class Overlay {
   }
 
   destroy() {
-    document.removeEventListener('mousemove', this.onMove);
+    this.detach();
     this.resizeObserver?.disconnect();
-    this.host.remove();
   }
 }

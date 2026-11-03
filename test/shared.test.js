@@ -225,6 +225,23 @@ test('validateSegment', () => {
   assert.equal(validateSegment({ start: 1, end: 2, category: 'sex', severity: 2, note: 'x'.repeat(999) }).segment.note.length, 280);
 });
 
+test('mayMatter lets nearly every request through untouched', async () => {
+  const { mayMatter } = await import('../shared/sources.js');
+  const nf = 'www.netflix.com';
+  assert.ok(mayMatter('https://www.netflix.com/nq/website/memberapi/v1/metadata?movieid=1', nf));
+  assert.ok(mayMatter('https://www.netflix.com/playapi/cadmium/licensedmanifest/1?reqName=prefetch/licensedManifest', nf));
+  assert.ok(mayMatter('/msl/playapi/cadmium/manifest/1', nf));
+  assert.ok(!mayMatter('https://www.netflix.com/playapi/cadmium/event/1?reqName=events/start&x=manifest', nf));
+  assert.ok(!mayMatter('https://www.netflix.com/nq/website/memberapi/v1/pathEvaluator?original_path=/shakti/subtitles', nf));
+  assert.ok(!mayMatter('https://ipv4-c1.oca.nflxvideo.net/range/0-99?o=1&v=5', nf));
+  assert.ok(!mayMatter('https://logs.netflix.com/log/www/cl/2', nf));
+  const pv = 'www.primevideo.com';
+  assert.ok(mayMatter('https://atv-ps.primevideo.com/cdp/catalog/GetPlaybackResources?asin=B0', pv));
+  assert.ok(mayMatter('https://cf.example.net/abc/en.ttml2', pv));
+  assert.ok(!mayMatter('https://www.primevideo.com/api/getDetailPage', pv));
+  assert.ok(mayMatter('/demo-playback.json', 'localhost'));
+});
+
 test('classifyResponse reads only what the extension needs', async () => {
   const { classifyResponse } = await import('../shared/sources.js');
   const nf = 'www.netflix.com';

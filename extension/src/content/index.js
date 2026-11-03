@@ -34,13 +34,16 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
     }
   }
 
-  // Netflix seeks go through the page-world player API (see page-hook.js).
+  // The page hook (page world) talks to us over a private MessageChannel; see
+  // connectHook below. Netflix seeks go through it to the player's own API.
+  let hookPort = null;
   const pendingSeeks = new Map();
   let seekSeq = 0;
   const bridge = {
     seek(seconds) {
+      if (!hookPort) return Promise.resolve(false);
       const reqId = ++seekSeq;
-      window.postMessage({ __cleancut: 'content', type: 'seek', seconds, reqId }, location.origin);
+      hookPort.postMessage({ type: 'seek', seconds, reqId });
       return new Promise((resolve) => {
         pendingSeeks.set(reqId, resolve);
         setTimeout(() => {
@@ -251,11 +254,15 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
     }
   }
 
+  // Runs once a second. Until a player shows up (browse and title pages) this
+  // is all CleanCut does on the page: no overlay element, no playback loop.
   function identify() {
+    if (!alive()) return shutdown(); // extension reloaded or disabled: stop for good
     const video = adapter.findVideo();
     if (video !== state.video) attachVideo(video);
-    overlay.attach();
     if (!video) return;
+    overlay.attach();
+    inspector.activate();
     const ident = adapter.identify();
     if (!ident) return;
     const key = titleKey(ident.platform, ident.platformId);
@@ -265,6 +272,7 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
       // Metadata arrived after the first lookup: retry so cross-platform tags can be found.
       loadTitle(ident, { refresh: true });
     }
+    inspector.want(ident.platformId); // fetch this title's subtitle track (once) when known
     if (!state.subtitleInfo && !state.trackScanPending && adapter.readTextTracks) {
       const cues = adapter.readTextTracks(video);
       if (cues?.length) {
@@ -276,13 +284,38 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
     }
   }
 
+  // The 100 ms playback loop runs only while a video is attached and playing.
+  let tickTimer = 0;
+  const startTicking = () => {
+    if (!tickTimer) tickTimer = setInterval(tick, TICK_MS);
+  };
+  const stopTicking = () => {
+    clearInterval(tickTimer);
+    tickTimer = 0;
+  };
+  const videoEvents = {
+    seeking: (e) => tick(e),
+    loadedmetadata: () => replan(),
+    play: () => startTicking(),
+    playing: () => startTicking(),
+    pause: () => stopTicking(),
+    ended: () => stopTicking(),
+    emptied: () => stopTicking(),
+  };
+
   function attachVideo(video) {
     restorePlayback();
+    stopTicking();
+    if (state.video) for (const [type, fn] of Object.entries(videoEvents)) state.video.removeEventListener(type, fn);
     state.video = video;
     overlay.setVideo(video);
-    if (!video) return;
-    video.addEventListener('seeking', tick);
-    video.addEventListener('loadedmetadata', () => replan());
+    if (!video) {
+      overlay.detach();
+      inspector.deactivate();
+      return;
+    }
+    for (const [type, fn] of Object.entries(videoEvents)) video.addEventListener(type, fn);
+    if (!video.paused) startTicking();
   }
 
   // ---- subtitles (scan-ahead) ---------------------------------------------------
@@ -305,25 +338,40 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
     });
   }
 
-  // Responses the page hook forwarded are parsed here, after the player has
-  // started, not in the hook at document_start.
-  const inspectResponse = createNetworkInspector((type, payload) => {
+  // Responses the page hook forwarded are parsed here, and only once a title
+  // is in the player (see network.js), not in the hook at document_start.
+  const inspector = createNetworkInspector((type, payload) => {
     if (type === 'subtitles') handleSubtitles(payload);
     else adapter.onPageMessage(type, payload);
   });
 
-  window.addEventListener('message', (e) => {
-    if (e.source !== window || e.data?.__cleancut !== 'page') return;
-    const { type, payload } = e.data;
-    if (type === 'response' && payload) inspectResponse(payload);
+  function onHookMessage({ type, payload } = {}) {
+    if (type === 'response' && payload) inspector.handle(payload);
     else if (type === 'seek-result') {
       const resolve = pendingSeeks.get(payload?.reqId);
       if (resolve) {
         pendingSeeks.delete(payload.reqId);
         resolve(!!payload.ok);
       }
-    } else adapter.onPageMessage(type, payload);
-  });
+    }
+  }
+
+  // Ask the page hook for a private channel (a DOM event both worlds see); it
+  // answers with one window message carrying the port, then sends what it
+  // found before we loaded. No window 'message' listener stays installed, so
+  // the site's own window messages never wake this script.
+  function connectHook() {
+    const onPort = (e) => {
+      if (e.source !== window || e.data?.__cleancut !== 'port' || !e.ports?.[0]) return;
+      window.removeEventListener('message', onPort);
+      hookPort = e.ports[0];
+      hookPort.onmessage = (m) => onHookMessage(m.data);
+    };
+    window.addEventListener('message', onPort);
+    document.dispatchEvent(new CustomEvent('cleancut:connect'));
+    setTimeout(() => window.removeEventListener('message', onPort), 5000); // no hook on this page
+  }
+  connectHook();
 
   // ---- the playback loop ----------------------------------------------------------
 
@@ -605,12 +653,17 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
 
   // ---- go -------------------------------------------------------------------------------
 
+  let identifyTimer = 0;
+  function shutdown() {
+    clearInterval(identifyTimer);
+    stopTicking();
+    restorePlayback();
+    overlay.destroy();
+    hookPort?.close();
+  }
+
   loadSettings().then(() => {
-    // Ask the page hook to replay anything it captured before we loaded.
-    window.postMessage({ __cleancut: 'content', type: 'hello' }, location.origin);
     identify();
-    setInterval(identify, IDENTIFY_MS);
-    setInterval(tick, TICK_MS);
+    identifyTimer = setInterval(identify, IDENTIFY_MS);
   });
-  window.addEventListener('resize', () => overlay.remeasure());
 })();

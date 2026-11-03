@@ -99,7 +99,10 @@ try {
   await waitFor(() => worker.evaluate(() => chrome.storage.sync.get('settings').then((s) => !!s.settings?.profile)), { what: 'default settings' });
   const useCatalog = async (base) => {
     await setSettings({ catalogBase: `${base}/catalog/` });
-    await worker.evaluate(() => chrome.storage.local.remove('catalogCache'));
+    await worker.evaluate(async () => {
+      const all = await chrome.storage.local.get(null);
+      await chrome.storage.local.remove(Object.keys(all).filter((k) => k.startsWith('cat:') || k === 'catalogIndex'));
+    });
   };
   await useCatalog(BASE);
   // Sharing opens github.com; keep the test offline and just read the link.

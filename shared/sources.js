@@ -160,8 +160,13 @@ export function classifyResponse(url, host, { contentType = '', length = 0, bina
 // Requests whose responses could matter, judged from the URL alone so the
 // page hook can ignore everything else without attaching a listener. Media
 // segments are deliberately excluded: Netflix subtitle files are found
-// through the manifest, never by inspecting media traffic.
+// through the manifest, never by inspecting media traffic. On Netflix only
+// the path is checked (its API and logging URLs carry long query strings)
+// and only the two responses CleanCut reads: episode metadata and manifests.
 const CANDIDATE_URL = /\/metadata(\?|\/|$)|manifest|GetPlaybackResources|playback[^/?]*\.json|\.(vtt|dfxp|ttml2?|srt|xml)(\?|$)|subtitle|caption|timedtext/i;
-export function mayMatter(url) {
-  return CANDIDATE_URL.test(String(url).replace(/^[a-z]+:\/\/[^/]+/i, ''));
+const NETFLIX_URL = /\/metadata(\/|$)|manifest/i;
+export function mayMatter(url, host = '') {
+  const path = String(url).replace(/^[a-z]+:\/\/[^/]+/i, '');
+  if (/(^|\.)netflix\.com$/.test(host)) return NETFLIX_URL.test(path.replace(/[?#].*/, ''));
+  return CANDIDATE_URL.test(path);
 }

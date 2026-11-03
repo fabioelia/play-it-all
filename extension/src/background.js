@@ -29,35 +29,53 @@ async function repo() {
   return (await settings()).catalogRepo || CATALOG_REPO;
 }
 
+// The catalog cache keeps one storage key per file ('cat:' + URL) plus a small
+// index of fetch times. chrome.storage.onChanged hands every change, old and
+// new value, to every content script in every open streaming tab, so a write
+// must carry only the file that changed, never the whole cache.
+const CACHE_PREFIX = 'cat:';
+
+async function cacheIndex() {
+  const { catalogIndex = {} } = await chrome.storage.local.get('catalogIndex');
+  return catalogIndex;
+}
+
+async function clearCatalogCache() {
+  const index = await cacheIndex();
+  await chrome.storage.local.remove(['catalogIndex', 'catalogCache', ...Object.keys(index).map((u) => CACHE_PREFIX + u)]);
+}
+
 /**
  * GET a catalog file with a local cache: fresh copies are used as-is, stale
  * ones are revalidated with ETag, and on network failure the last copy wins.
  */
 async function fetchCatalog(path, { force = false } = {}) {
   const url = new URL(path, await catalogBase()).href;
-  const { catalogCache = {} } = await chrome.storage.local.get('catalogCache');
-  const hit = catalogCache[url];
+  const key = CACHE_PREFIX + url;
+  const { [key]: hit } = await chrome.storage.local.get(key);
   if (hit && !force && Date.now() - hit.at < TTL_MS) return { data: hit.data, online: true, cached: true };
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
     const res = await fetch(url, { signal: ctrl.signal, cache: 'no-cache', headers: hit?.etag ? { 'If-None-Match': hit.etag } : {} });
+    let entry;
     if (res.status === 304 && hit) {
-      hit.at = Date.now();
+      entry = { ...hit, at: Date.now() };
     } else if (res.status === 404) {
       return { data: null, online: true, cached: false };
     } else if (!res.ok) {
       throw new Error(`HTTP ${res.status}`);
     } else {
-      catalogCache[url] = { at: Date.now(), etag: res.headers.get('etag'), data: await res.json() };
+      entry = { at: Date.now(), etag: res.headers.get('etag'), data: await res.json() };
     }
-    const keys = Object.keys(catalogCache);
-    if (keys.length > MAX_CACHE) {
-      keys.sort((a, b) => catalogCache[a].at - catalogCache[b].at);
-      for (const k of keys.slice(0, keys.length - MAX_CACHE)) delete catalogCache[k];
-    }
-    await chrome.storage.local.set({ catalogCache });
-    return { data: catalogCache[url].data, online: true, cached: false };
+    const index = await cacheIndex();
+    index[url] = entry.at;
+    const urls = Object.keys(index);
+    const evict = urls.length > MAX_CACHE ? urls.sort((a, b) => index[a] - index[b]).slice(0, urls.length - MAX_CACHE) : [];
+    for (const u of evict) delete index[u];
+    if (evict.length) await chrome.storage.local.remove(evict.map((u) => CACHE_PREFIX + u));
+    await chrome.storage.local.set({ [key]: entry, catalogIndex: index });
+    return { data: entry.data, online: true, cached: false };
   } catch (e) {
     if (hit) return { data: hit.data, online: false, cached: true, error: e.name === 'AbortError' ? 'catalog did not respond' : e.message };
     throw new Error(e.name === 'AbortError' ? 'catalog did not respond' : e.message);
@@ -241,7 +259,7 @@ const handlers = {
     return { base: await catalogBase(), counts: index.data?.counts || null, generated: index.data?.generated || null, online: index.online, error: index.error || null };
   },
   clearCache: async () => {
-    await chrome.storage.local.remove('catalogCache');
+    await clearCatalogCache();
     return { ok: true };
   },
   status: async (m, sender) => {
@@ -303,6 +321,7 @@ handlers.getParts = async () => {
 
 chrome.runtime.onInstalled.addListener(async ({ reason }) => {
   await syncContentScripts();
+  await chrome.storage.local.remove('catalogCache'); // the old single-key cache (before per-file keys)
   const s = await settings();
   if (!s.profile) await chrome.storage.sync.set({ settings: { enabled: true, ...s, profile: defaultProfile() } });
   if (reason === 'install') chrome.runtime.openOptionsPage?.();

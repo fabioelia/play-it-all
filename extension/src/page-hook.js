@@ -5,44 +5,47 @@
 // What has to be here, because it must exist before the player starts:
 //  1. fetch / XMLHttpRequest wrappers that notice the few responses CleanCut
 //     uses (episode metadata, the manifest listing subtitle tracks, subtitle
-//     files). Requests whose URL cannot matter get no listener at all (that
-//     includes every media segment); the rest are checked by headers, never
-//     parsed here, and their raw body is passed on.
+//     files). Requests whose URL cannot matter are passed straight through:
+//     no listener, no clone, nothing stored on the request object (that
+//     includes every media segment and every API call but those few).
 //  2. The Netflix seek bridge: assigning video.currentTime directly crashes
 //     the Netflix player (error M7375), so seeks go through its own API.
 //
-// Messages are window.postMessage with { __cleancut: 'page' | 'content' }.
+// Talking to the content script: nothing is broadcast with window.postMessage.
+// Every window 'message' listener in the page (the site's own schedulers,
+// other extensions' content scripts) would receive, and copy, each response
+// body. Instead the content script asks for a private MessageChannel once
+// (a 'cleancut:connect' DOM event); findings go only through that port, and
+// the few found before it connects are kept (bounded) and handed over then.
 
 import { MAX_INSPECT_BYTES, classifyResponse, mayMatter } from '../../shared/sources.js';
 
 (() => {
   if (window.__cleancutHooked) return;
-  window.__cleancutHooked = true;
+  Object.defineProperty(window, '__cleancutHooked', { value: true });
 
   const HOST = location.hostname;
-  const origFetch = window.fetch.bind(window);
+  const origFetch = window.fetch;
 
-  // The content script loads later, so the last few findings are kept and
-  // replayed when it says hello.
-  const backlog = [];
-  const post = (type, payload) => {
-    if (type === 'response') {
-      backlog.push({ type, payload });
-      if (backlog.length > 6) backlog.shift();
-    }
-    window.postMessage({ __cleancut: 'page', type, payload }, location.origin);
+  let port = null;
+  const backlog = []; // findings made before the content script connected
+  const MAX_BACKLOG = 8;
+  const forward = (url, kind, body) => {
+    const msg = { type: 'response', payload: { url, kind, body } };
+    if (port) return port.postMessage(msg);
+    backlog.push(msg);
+    if (backlog.length > MAX_BACKLOG) backlog.shift();
   };
-  const forward = (url, kind, body) => post('response', { url, kind, body });
 
-  window.fetch = function (input, init) {
-    const pending = origFetch(input, init);
+  window.fetch = function fetch(input, init) {
+    const pending = origFetch.call(window, input, init);
     let url;
     try {
       url = typeof input === 'string' ? input : input?.url || String(input);
     } catch {
       return pending;
     }
-    if (!mayMatter(url)) return pending; // nearly every request: untouched
+    if (!mayMatter(url, HOST)) return pending; // nearly every request: untouched
     pending.then((res) => {
       try {
         const kind = classifyResponse(url, HOST, {
@@ -56,20 +59,24 @@ import { MAX_INSPECT_BYTES, classifyResponse, mayMatter } from '../../shared/sou
     return pending; // the player gets the very same promise
   };
 
+  // Only requests that may matter are remembered (in a WeakMap, so the
+  // player's XHR objects stay unmodified and are collected as usual).
+  const watched = new WeakMap();
   const XHR = XMLHttpRequest.prototype;
   const origOpen = XHR.open;
   const origSend = XHR.send;
-  XHR.open = function (method, url, ...rest) {
-    this.__ccUrl = String(url);
+  XHR.open = function open(method, url, ...rest) {
+    const u = String(url);
+    if (mayMatter(u, HOST)) watched.set(this, u);
+    else if (watched.has(this)) watched.delete(this); // an XHR object reused for another URL
     return origOpen.call(this, method, url, ...rest);
   };
   function onXhrLoad() {
     try {
-      const url = this.__ccUrl || '';
+      const url = watched.get(this) || '';
       const rt = this.responseType;
       const binary = rt === 'arraybuffer';
-      // URL and headers only: touching this.response here would materialise
-      // every media segment.
+      // URL and headers only: touching this.response here would materialise the body.
       const kind = classifyResponse(url, HOST, {
         contentType: this.getResponseHeader('content-type') || '',
         length: Number(this.getResponseHeader('content-length') || 0),
@@ -83,8 +90,8 @@ import { MAX_INSPECT_BYTES, classifyResponse, mayMatter } from '../../shared/sou
       }
     } catch { /* ignore */ }
   }
-  XHR.send = function (...args) {
-    if (mayMatter(this.__ccUrl || '')) this.addEventListener('load', onXhrLoad);
+  XHR.send = function send(...args) {
+    if (watched.has(this)) this.addEventListener('load', onXhrLoad, { once: true });
     return origSend.apply(this, args);
   };
 
@@ -100,21 +107,28 @@ import { MAX_INSPECT_BYTES, classifyResponse, mayMatter } from '../../shared/sou
     }
   }
 
-  window.addEventListener('message', (e) => {
-    if (e.source !== window || e.data?.__cleancut !== 'content') return;
-    const { type, seconds, reqId } = e.data;
-    if (type === 'hello') {
-      for (const m of backlog) window.postMessage({ __cleancut: 'page', ...m }, location.origin);
-    } else if (type === 'seek') {
-      const p = netflixPlayer();
-      let ok = false;
-      if (p && Number.isFinite(seconds)) {
-        try {
-          p.seek(Math.round(seconds * 1000));
-          ok = true;
-        } catch { /* fall through */ }
-      }
-      post('seek-result', { reqId, ok });
+  function onContentMessage(e) {
+    const { type, seconds, reqId } = e.data || {};
+    if (type !== 'seek') return;
+    const p = netflixPlayer();
+    let ok = false;
+    if (p && Number.isFinite(seconds)) {
+      try {
+        p.seek(Math.round(seconds * 1000));
+        ok = true;
+      } catch { /* fall through */ }
     }
+    port?.postMessage({ type: 'seek-result', payload: { reqId, ok } });
+  }
+
+  // The content script (isolated world) asks for a channel; the port travels
+  // in one small window message, the only one CleanCut ever posts.
+  document.addEventListener('cleancut:connect', () => {
+    const channel = new MessageChannel();
+    port?.close();
+    port = channel.port1;
+    port.onmessage = onContentMessage;
+    window.postMessage({ __cleancut: 'port' }, location.origin, [channel.port2]);
+    for (const msg of backlog.splice(0)) port.postMessage(msg);
   });
 })();
