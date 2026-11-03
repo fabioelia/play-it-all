@@ -5,8 +5,12 @@
   "description": "Rate-your-own-cut: a browser extension that skips, mutes or blurs explicit scenes on Netflix and Prime Video, backed by a community database of timestamped content tags.",
   "type": "module",
   "license": "MIT",
-  "engines": { "node": ">=22.13" },
-  "bin": { "cleancut-scan": "scanner/src/cli.js" },
+  "engines": {
+    "node": ">=22.13"
+  },
+  "bin": {
+    "cleancut-scan": "scanner/src/cli.js"
+  },
   "scripts": {
     "build": "node extension/build.mjs",
     "watch": "node extension/build.mjs --watch",
@@ -18,5 +22,8 @@
   },
   "devDependencies": {
     "esbuild": "^0.25.0"
+  },
+  "optionalDependencies": {
+    "onnxruntime-node": "^1.31.1"
   }
 }
