@@ -110,3 +110,16 @@ test('errors: unknown route, bad json, big batch', async () => {
   assert.equal((await api('POST', '/v1/segments', { title: got, segments: many }, apiKey)).status, 413);
   assert.equal((await api('POST', '/v1/segments', { title: { platform: 'hulu', platformId: '1' }, segments: many.slice(0, 1) }, apiKey)).status, 400);
 });
+
+test('static files support byte ranges (needed for video seeking)', async () => {
+  const full = await fetch(`${base}/demo.vtt`);
+  assert.equal(full.headers.get('accept-ranges'), 'bytes');
+  const text = await full.text();
+  const part = await fetch(`${base}/demo.vtt`, { headers: { Range: 'bytes=0-5' } });
+  assert.equal(part.status, 206);
+  assert.equal(await part.text(), text.slice(0, 6));
+  assert.equal(part.headers.get('content-range'), `bytes 0-5/${Buffer.byteLength(text)}`);
+  const suffix = await fetch(`${base}/demo.vtt`, { headers: { Range: 'bytes=-4' } });
+  assert.equal(await suffix.text(), text.slice(-4));
+  assert.equal((await fetch(`${base}/demo.vtt`, { headers: { Range: 'bytes=999999-' } })).status, 416);
+});

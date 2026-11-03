@@ -213,6 +213,7 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
       const lang = ttmlLanguage(text);
       if (lang && !/^en\b/i.test(lang)) return;
     }
+    if (state.subtitleInfo?.url === url) return; // already analyzed (replayed message)
     if (state.subtitleInfo?.sdh && !sdh) return; // keep the richer SDH track
     const cues = parseSubtitles(text);
     if (cues.length < 5) return;
@@ -449,6 +450,8 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
   // ---- go -------------------------------------------------------------------------------
 
   loadSettings().then(() => {
+    // Ask the page hook to replay anything it captured before we loaded.
+    window.postMessage({ __cleancut: 'content', type: 'hello' }, location.origin);
     identify();
     setInterval(identify, IDENTIFY_MS);
     setInterval(tick, TICK_MS);

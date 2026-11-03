@@ -27,7 +27,16 @@ import {
   const origFetch = window.fetch.bind(window);
   const fetchedSubs = new Set();
 
-  const post = (type, payload) => window.postMessage({ __cleancut: 'page', type, payload }, location.origin);
+  // The content script loads later (document_idle) than this hook
+  // (document_start), so findings are buffered and replayed when it says hello.
+  const backlog = [];
+  const post = (type, payload) => {
+    if (type !== 'seek-result') {
+      backlog.push({ type, payload });
+      if (backlog.length > 20) backlog.shift();
+    }
+    window.postMessage({ __cleancut: 'page', type, payload }, location.origin);
+  };
 
   const INTERESTING = /manifest|metadata|GetPlaybackResources|playback|timedtext|subtitle|caption|\.vtt|\.dfxp|\.ttml|\.xml|\?o=/i;
 
@@ -141,7 +150,9 @@ import {
   window.addEventListener('message', (e) => {
     if (e.source !== window || e.data?.__cleancut !== 'content') return;
     const { type, seconds, reqId } = e.data;
-    if (type === 'seek') {
+    if (type === 'hello') {
+      for (const m of backlog) window.postMessage({ __cleancut: 'page', ...m }, location.origin);
+    } else if (type === 'seek') {
       const p = netflixPlayer();
       let ok = false;
       if (p && Number.isFinite(seconds)) {

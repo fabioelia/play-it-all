@@ -350,7 +350,22 @@ export function createApp(db, { rateLimit = { windowMs: 60_000, max: 120 } } = {
       const file = join(PUBLIC_DIR, STATIC[url.pathname]);
       try {
         const data = await readFile(file);
-        res.writeHead(200, { 'Content-Type': TYPES[extname(file)] || 'application/octet-stream', 'Content-Length': data.length });
+        const type = TYPES[extname(file)] || 'application/octet-stream';
+        // Media elements need byte ranges to seek.
+        const range = /^bytes=(\d*)-(\d*)$/.exec(req.headers.range || '');
+        if (range && (range[1] || range[2])) {
+          let start = range[1] ? Number(range[1]) : data.length - Number(range[2]);
+          let end = range[1] && range[2] ? Number(range[2]) : data.length - 1;
+          start = Math.max(0, start);
+          end = Math.min(end, data.length - 1);
+          if (start > end) {
+            res.writeHead(416, { 'Content-Range': `bytes */${data.length}` });
+            return res.end();
+          }
+          res.writeHead(206, { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Content-Range': `bytes ${start}-${end}/${data.length}`, 'Content-Length': end - start + 1 });
+          return res.end(data.subarray(start, end + 1));
+        }
+        res.writeHead(200, { 'Content-Type': type, 'Accept-Ranges': 'bytes', 'Content-Length': data.length });
         return res.end(data);
       } catch {
         return send(res, 404, { error: `${STATIC[url.pathname]} not found${url.pathname === '/demo.webm' ? ' — run `npm run demo:video`' : ''}` });
