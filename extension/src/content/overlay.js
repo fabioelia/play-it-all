@@ -52,7 +52,13 @@ const STYLE = `
 `;
 
 export class Overlay {
-  constructor() {
+  /**
+   * @param {{ fillViewport?: boolean }} [opts] fillViewport: the player fills the
+   *   window (Netflix, Prime), so the overlay covers the viewport with CSS and
+   *   never has to measure the video.
+   */
+  constructor({ fillViewport = false } = {}) {
+    this.fillViewport = fillViewport;
     this.host = document.createElement('cleancut-overlay');
     this.shadow = this.host.attachShadow({ mode: 'open' });
     this.shadow.innerHTML = `<style>${STYLE}</style>
@@ -75,10 +81,18 @@ export class Overlay {
     // an element composited on top of a playing video costs GPU time on every
     // frame and can stop the browser handing the video to a hardware overlay.
     this.revealed = false;
+    this.shown = false; // tracked here so deciding never reads the DOM
     this.lastReveal = 0;
     this.lastRect = '';
     this.lastPlayhead = '';
     this.root.style.display = 'none';
+    if (fillViewport) Object.assign(this.root.style, { left: '0', top: '0', width: '100vw', height: '100vh' });
+    // DOM work is batched into one animation frame: measure first (if needed),
+    // then write. Reading layout after writing, or at a random timer tick
+    // after the page changed, would force a synchronous layout of the page.
+    this.writes = new Map();
+    this.needsMeasure = false;
+    this.raf = 0;
     this.onMove = () => {
       const now = performance.now();
       if (now - this.lastReveal > 250) this.reveal(); // mousemove fires ~60×/s
@@ -102,84 +116,129 @@ export class Overlay {
     if (this.host.parentNode !== parent) parent.appendChild(this.host);
   }
 
+  // ---- frame batching -----------------------------------------------------------------
+
+  /** Queue a DOM write for the next frame; a later write with the same key replaces it. */
+  write(key, fn) {
+    this.writes.set(key, fn);
+    if (!this.raf) this.raf = requestAnimationFrame(() => this.flush());
+  }
+
+  flush() {
+    this.raf = 0;
+    // Read phase: at most one measurement per frame, and only for players
+    // that do not fill the window.
+    let rect = null;
+    if (this.needsMeasure && this.shown && !this.fillViewport && this.video?.isConnected) {
+      const r = this.video.getBoundingClientRect();
+      rect = `${r.left}|${r.top}|${r.width}|${r.height}`;
+      if (rect !== this.lastRect) {
+        this.lastRect = rect;
+        this.writes.set('rect', () => Object.assign(this.root.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` }));
+      }
+    }
+    this.needsMeasure = false;
+    // Write phase.
+    const writes = [...this.writes.values()];
+    this.writes.clear();
+    for (const fn of writes) fn();
+  }
+
+  // ---- state ------------------------------------------------------------------------------
+
   setVideo(video) {
     if (this.video && this.resizeObserver) this.resizeObserver.unobserve(this.video);
     this.video = video;
-    if (video && this.resizeObserver) this.resizeObserver.observe(video);
+    if (video && this.resizeObserver && !this.fillViewport) this.resizeObserver.observe(video);
     this.lastRect = '';
     this.updateVisibility();
   }
 
-  /** The video's box may have changed: measure again next time we are visible. */
+  /** The video's box may have changed: measure again in the next frame (if shown). */
   remeasure() {
+    if (this.fillViewport) return;
     this.lastRect = '';
-    this.position();
+    this.needsMeasure = true;
+    this.write('noop', () => {});
   }
 
   get visible() {
-    return this.root.style.display !== 'none';
+    return this.shown;
   }
 
   /** Show the overlay only while a toast, the form or the revealed timeline needs it. */
   updateVisibility() {
     const wanted = !!(this.video?.isConnected && (this.revealed || this.form || this.toasts.childElementCount || !this.cover.hidden));
-    if (wanted === this.visible) return;
-    this.root.style.display = wanted ? 'block' : 'none';
+    if (wanted === this.shown) return;
+    this.shown = wanted;
+    this.write('display', () => {
+      this.root.style.display = this.shown ? 'block' : 'none';
+    });
     if (wanted) {
-      this.lastRect = '';
       this.lastPlayhead = '';
-      this.position();
+      this.remeasure();
     }
   }
 
+  /** Kept for callers; measuring now always happens inside a frame. */
   position() {
-    if (!this.visible || !this.video) return;
-    const r = this.video.getBoundingClientRect();
-    const rect = `${r.left}|${r.top}|${r.width}|${r.height}`;
-    if (rect === this.lastRect) return;
-    this.lastRect = rect;
-    Object.assign(this.root.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+    this.remeasure();
   }
 
   reveal(ms = 2500) {
     this.lastReveal = performance.now();
     this.revealed = true;
     this.updateVisibility();
-    this.timeline.classList.add('show');
-    this.badge.classList.add('show');
+    this.write('reveal', () => {
+      this.timeline.classList.toggle('show', this.revealed);
+      this.badge.classList.toggle('show', this.revealed);
+    });
     clearTimeout(this.hideTimer);
     this.hideTimer = setTimeout(() => {
       if (this.form) return;
       this.revealed = false;
-      this.timeline.classList.remove('show');
-      this.badge.classList.remove('show');
+      this.write('reveal', () => {
+        this.timeline.classList.toggle('show', this.revealed);
+        this.badge.classList.toggle('show', this.revealed);
+      });
       setTimeout(() => this.updateVisibility(), 300); // after the fade-out
     }, ms);
   }
 
   /** Label shown while the picture is hidden; null removes it. */
   setCover(text) {
-    this.cover.hidden = !text;
-    this.cover.textContent = text || '';
+    this.coverText = text || '';
+    this.cover.hidden = !text; // read by updateVisibility; the element is inside our hidden shadow root
+    this.write('cover', () => {
+      this.cover.textContent = this.coverText;
+    });
     this.updateVisibility();
   }
 
   setBadge(textContent) {
-    this.badge.textContent = textContent;
+    if (textContent === this.badgeText) return;
+    this.badgeText = textContent;
+    this.write('badge', () => {
+      this.badge.textContent = this.badgeText;
+    });
   }
 
   /** @param {Array} flagged segments with decision, @param {number} duration */
   renderTimeline(flagged, duration) {
-    for (const m of this.timeline.querySelectorAll('.mark')) m.remove();
-    if (!duration || !Number.isFinite(duration)) return;
-    for (const s of flagged) {
-      const el = document.createElement('div');
-      el.className = `mark ${s.decision}`;
-      el.style.left = `${(s.start / duration) * 100}%`;
-      el.style.width = `${(Math.max(0.5, s.end - s.start) / duration) * 100}%`;
-      el.style.background = CATEGORY_COLORS[s.category] || '#999';
-      this.timeline.insertBefore(el, this.playhead);
-    }
+    this.write('timeline', () => {
+      for (const m of this.timeline.querySelectorAll('.mark')) m.remove();
+      if (!duration || !Number.isFinite(duration)) return;
+      const frag = document.createDocumentFragment();
+      for (const seg of flagged) {
+        const el = document.createElement('div');
+        el.className = `mark ${seg.decision}`;
+        el.style.left = `${(seg.start / duration) * 100}%`;
+        el.style.width = `${(Math.max(0.5, seg.end - seg.start) / duration) * 100}%`;
+        el.style.background = CATEGORY_COLORS[seg.category] || '#999';
+        frag.append(el);
+      }
+      this.timeline.insertBefore(frag, this.playhead);
+    });
   }
 
   // A transform on its own compositor layer: moving it needs no layout, and
@@ -192,7 +251,9 @@ export class Overlay {
     const pos = `translateX(${((time / duration) * 100).toFixed(2)}%)`;
     if (pos === this.lastPlayhead) return;
     this.lastPlayhead = pos;
-    this.playhead.style.transform = pos;
+    this.write('playhead', () => {
+      this.playhead.style.transform = this.lastPlayhead;
+    });
   }
 
   toast(message, { color = '#4f7cff', actionLabel, onAction, ms = 5000 } = {}) {

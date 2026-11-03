@@ -49,7 +49,7 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
   };
 
   const adapter = detectAdapter(bridge);
-  const overlay = new Overlay();
+  const overlay = new Overlay({ fillViewport: !!adapter.fillsViewport });
 
   // ---- state ---------------------------------------------------------------
 
@@ -86,14 +86,14 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
     stats: { skips: 0, mutes: 0 },
   };
 
-  // ---- styles for hiding the picture and captions (page DOM, not shadow) ----------
-
-  const style = document.createElement('style');
-  style.textContent = `
-    /* brightness(0) is a single cheap colour pass; blur() stuttered playback. */
-    video.cleancut-blur { filter: brightness(0) !important; }
-    .cleancut-hide-captions { visibility: hidden !important; }`;
-  (document.head || document.documentElement).append(style);
+  // ---- hiding the picture and captions ---------------------------------------------
+  // Inline styles on just the elements involved: no stylesheet is added to the
+  // page, so Netflix's large DOM is never re-matched against our selectors.
+  // brightness(0) is a single cheap colour pass; a blur() filter stuttered playback.
+  const setPictureHidden = (video, hidden) => {
+    if (hidden) video.style.setProperty('filter', 'brightness(0)', 'important');
+    else video.style.removeProperty('filter');
+  };
 
   // ---- settings --------------------------------------------------------------
 
@@ -309,13 +309,18 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
   function setCaptionsHidden(hidden) {
     state.captionsHidden = hidden;
     if (!adapter.captionSelector) return;
-    for (const el of document.querySelectorAll(adapter.captionSelector)) el.classList.toggle('cleancut-hide-captions', hidden);
+    for (const el of document.querySelectorAll(adapter.captionSelector)) {
+      // Reading an inline style is not a layout read; only write when needed.
+      const isHidden = el.style.getPropertyValue('visibility') === 'hidden';
+      if (hidden && !isHidden) el.style.setProperty('visibility', 'hidden', 'important');
+      else if (!hidden && isHidden) el.style.removeProperty('visibility');
+    }
   }
 
   function restorePlayback() {
     const v = state.video;
     if (v && state.mutedByUs) v.muted = state.prevMuted;
-    if (v && state.blurred) v.classList.remove('cleancut-blur');
+    if (v && state.blurred) setPictureHidden(v, false);
     if (state.blurred) overlay.setCover(null);
     state.mutedByUs = false;
     state.blurred = false;
@@ -391,8 +396,11 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
       setCaptionsHidden(true); // players re-render caption nodes constantly
     }
 
+    if (blur && state.blurred && video.style.getPropertyValue('filter') !== 'brightness(0)') {
+      setPictureHidden(video, true); // the player re-rendered the element's style
+    }
     if (blur !== state.blurred) {
-      video.classList.toggle('cleancut-blur', blur);
+      setPictureHidden(video, blur);
       state.blurred = blur;
       const hidden = d.active.filter((r) => r.action === 'blur' || (cover && r.action === 'skip'));
       overlay.setCover(blur ? `Picture hidden · ${reasonText(hidden.flatMap((r) => r.reasons))}` : null);

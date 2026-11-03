@@ -6,15 +6,20 @@
 import { canonicalKey, parseEpisodeLabel } from '../../../shared/identity.js';
 import { parseClock } from '../../../shared/subtitles.js';
 
+/**
+ * The main video, chosen without reading layout: by whether it has media
+ * loaded and by its own resolution (videoWidth × videoHeight are properties of
+ * the stream, not the page, so reading them never forces a reflow).
+ */
 function largestVideo(root = document) {
   let best = null;
-  let bestArea = 0;
+  let bestScore = -1;
   for (const v of root.querySelectorAll('video')) {
-    const r = v.getBoundingClientRect();
-    const area = r.width * r.height;
-    if (area > bestArea && (v.currentSrc || v.src || v.srcObject)) {
+    if (!(v.currentSrc || v.src || v.srcObject)) continue;
+    const score = (v.readyState > 0 ? 1e9 : 0) + v.videoWidth * v.videoHeight;
+    if (score > bestScore) {
       best = v;
-      bestArea = area;
+      bestScore = score;
     }
   }
   return best;
@@ -29,6 +34,7 @@ export function netflixAdapter(bridge) {
 
   return {
     platform: 'netflix',
+    fillsViewport: true, // the watch page player always fills the window
     captionSelector: '.player-timedtext',
     onPageMessage(type, payload) {
       if (type === 'netflix-metadata') Object.assign(metadata, payload);
@@ -84,6 +90,7 @@ export function primeAdapter() {
 
   return {
     platform: 'prime',
+    fillsViewport: true,
     captionSelector: '.atvwebplayersdk-captions-overlay',
     onPageMessage(type, payload) {
       if (type === 'prime-title') title = payload;

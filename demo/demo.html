@@ -71,8 +71,11 @@
   v.addEventListener('timeupdate', () => (lastTime = v.currentTime));
   v.addEventListener('seeking', () => log('seek', { from: +lastTime.toFixed(2), to: +v.currentTime.toFixed(2) }));
   v.addEventListener('volumechange', () => log(v.muted ? 'muted' : 'unmuted'));
-  new MutationObserver(() => log(v.classList.contains('cleancut-blur') ? 'blurred' : 'unblurred'))
-    .observe(v, { attributes: true, attributeFilter: ['class'] });
+  let hidden = false;
+  new MutationObserver(() => {
+    const now = v.style.getPropertyValue('filter') !== '';
+    if (now !== hidden) log((hidden = now) ? 'blurred' : 'unblurred');
+  }).observe(v, { attributes: true, attributeFilter: ['style'] });
 
   // Two ways to provide captions, matching how real players work:
   //  default      a <track> element (what non-DRM sites do)
