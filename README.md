@@ -232,6 +232,17 @@ bar, moves the mouse and clicks pause and play, and reports janky frames,
 input delay (Event Timing), dropped video frames, and style and layout work.
 `BROKEN_API=1` simulates Netflix's seek API being unavailable.
 
+`npm run bench:real` measures the extension on the real Netflix site: public
+pages (a title page and the home page, no account needed), each loaded cold
+and warm with and without CleanCut, traced, and compared on main-thread time,
+long tasks, compile and code-cache use, FCP/LCP/load, requests and CPU in
+every browser process. `--variants none,full,hook,content` switches the two
+page scripts separately, `--ext before=…,after=…` compares builds, `--with`
+loads other extensions (an ad blocker, say) in every run, and `--traffic`
+replays what a signed-in Netflix page does in the background (the player
+prefetching manifests for titles on screen, then opening one) inside the
+real page. The header of `test/perf/netflix-real.mjs` lists every option.
+
 `npm run trace -- <file>` summarises a Performance recording made in Chrome
 DevTools on the real site (Performance → record → Save profile). It reports
 main-thread time per owner (the page, CleanCut, other extensions), long
@@ -256,7 +267,10 @@ The end-to-end test plays the demo episode and checks:
   accounts. The adapters follow the players' current DOM and JSON shapes,
   which change without notice. Every extractor is defensive, and the code
   marks each place that depends on site internals. Expect to maintain
-  selectors.
+  selectors. Netflix's player defaults to its encrypted MSL transport for
+  playback requests (`/msl/playapi/…`); if a manifest arrives encrypted,
+  CleanCut cannot read the subtitle list from it and Netflix scan-ahead finds
+  nothing (catalog tags and your own tags still work).
 - **Netflix seeking** goes through the player's own API, because setting
   `video.currentTime` crashes the Netflix player (error M7375). If Netflix
   changes that API, CleanCut notices the failed seek, says so once, and covers
