@@ -29,10 +29,13 @@ const STYLE = `
 .mark { position: absolute; top: 0; bottom: 0; min-width: 2px; }
 .mark.suggested { background-image: repeating-linear-gradient(45deg, rgba(0,0,0,.45) 0 3px, transparent 3px 6px); opacity: .75; }
 .mark.allowed, .mark.allowed-by-list { opacity: .28; }
-.playhead { position: absolute; top: -3px; bottom: -3px; width: 2px; background: #fff; }
+.playhead { position: absolute; top: -3px; bottom: -3px; left: 0; width: 100%; will-change: transform; }
+.playhead::before { content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 2px; background: #fff; }
 .badge { position: absolute; left: 12px; top: 12px; font-size: 12px; padding: 3px 8px; border-radius: 999px; background: rgba(20,20,24,.75);
   border: 1px solid rgba(255,255,255,.14); opacity: 0; transition: opacity .25s; }
 .badge.show { opacity: 1; }
+.cover { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 8px 14px; border-radius: 999px;
+  background: rgba(30,30,36,.9); border: 1px solid rgba(255,255,255,.14); font-size: 13px; color: #ddd; }
 .form { pointer-events: auto; position: absolute; left: 50%; bottom: 56px; transform: translateX(-50%); width: min(420px, 92%);
   background: rgba(20,20,24,.95); border: 1px solid rgba(255,255,255,.18); border-radius: 12px; padding: 14px; box-shadow: 0 10px 40px rgba(0,0,0,.5); }
 .form h3 { margin: 0 0 10px; font-size: 15px; }
@@ -55,6 +58,7 @@ export class Overlay {
     this.shadow.innerHTML = `<style>${STYLE}</style>
       <div class="root">
         <div class="badge"></div>
+        <div class="cover" hidden></div>
         <div class="toasts"></div>
         <div class="timeline"><div class="playhead"></div></div>
       </div>`;
@@ -63,6 +67,7 @@ export class Overlay {
     this.timeline = this.shadow.querySelector('.timeline');
     this.playhead = this.shadow.querySelector('.playhead');
     this.badge = this.shadow.querySelector('.badge');
+    this.cover = this.shadow.querySelector('.cover');
     this.video = null;
     this.hideTimer = null;
     this.form = null;
@@ -79,7 +84,15 @@ export class Overlay {
       if (now - this.lastReveal > 250) this.reveal(); // mousemove fires ~60×/s
     };
     document.addEventListener('mousemove', this.onMove, { passive: true });
-    document.addEventListener('fullscreenchange', () => this.attach());
+    document.addEventListener('fullscreenchange', () => {
+      this.attach();
+      this.remeasure();
+    });
+    // Re-measure only when the video's box changes, never by polling: reading
+    // layout while the player's controls are animating forces a synchronous
+    // layout of the whole page.
+    this.resizeObserver = typeof ResizeObserver === 'function' ? new ResizeObserver(() => this.remeasure()) : null;
+    this.lastPlayheadAt = 0;
     this.attach();
   }
 
@@ -90,9 +103,17 @@ export class Overlay {
   }
 
   setVideo(video) {
+    if (this.video && this.resizeObserver) this.resizeObserver.unobserve(this.video);
     this.video = video;
+    if (video && this.resizeObserver) this.resizeObserver.observe(video);
     this.lastRect = '';
     this.updateVisibility();
+  }
+
+  /** The video's box may have changed: measure again next time we are visible. */
+  remeasure() {
+    this.lastRect = '';
+    this.position();
   }
 
   get visible() {
@@ -101,7 +122,7 @@ export class Overlay {
 
   /** Show the overlay only while a toast, the form or the revealed timeline needs it. */
   updateVisibility() {
-    const wanted = !!(this.video?.isConnected && (this.revealed || this.form || this.toasts.childElementCount));
+    const wanted = !!(this.video?.isConnected && (this.revealed || this.form || this.toasts.childElementCount || !this.cover.hidden));
     if (wanted === this.visible) return;
     this.root.style.display = wanted ? 'block' : 'none';
     if (wanted) {
@@ -136,6 +157,13 @@ export class Overlay {
     }, ms);
   }
 
+  /** Label shown while the picture is hidden; null removes it. */
+  setCover(text) {
+    this.cover.hidden = !text;
+    this.cover.textContent = text || '';
+    this.updateVisibility();
+  }
+
   setBadge(textContent) {
     this.badge.textContent = textContent;
   }
@@ -154,12 +182,17 @@ export class Overlay {
     }
   }
 
+  // A transform on its own compositor layer: moving it needs no layout, and
+  // four updates a second is plenty for a 6 px strip.
   setPlayhead(time, duration) {
     if (!this.revealed || !(duration > 0)) return;
-    const left = `${((time / duration) * 100).toFixed(2)}%`;
-    if (left === this.lastPlayhead) return;
-    this.lastPlayhead = left;
-    this.playhead.style.left = left;
+    const now = performance.now();
+    if (now - this.lastPlayheadAt < 250) return;
+    this.lastPlayheadAt = now;
+    const pos = `translateX(${((time / duration) * 100).toFixed(2)}%)`;
+    if (pos === this.lastPlayhead) return;
+    this.lastPlayhead = pos;
+    this.playhead.style.transform = pos;
   }
 
   toast(message, { color = '#4f7cff', actionLabel, onAction, ms = 5000 } = {}) {
@@ -257,6 +290,7 @@ export class Overlay {
 
   destroy() {
     document.removeEventListener('mousemove', this.onMove);
+    this.resizeObserver?.disconnect();
     this.host.remove();
   }
 }

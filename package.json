@@ -19,7 +19,8 @@
     "demo:video": "sh scripts/make-demo-video.sh",
     "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js",
     "test:e2e": "npm run build && node --disable-warning=ExperimentalWarning test/e2e/extension.e2e.mjs",
-    "bench": "npm run build && node --disable-warning=ExperimentalWarning test/perf/netflix-sim.mjs"
+    "bench": "npm run build && node --disable-warning=ExperimentalWarning test/perf/netflix-sim.mjs",
+    "bench:playback": "npm run build && node --disable-warning=ExperimentalWarning test/perf/playback-sim.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.25.0"

@@ -19,7 +19,11 @@ export const CATEGORY_IDS = CATEGORIES.map((c) => c.id);
 
 export const SEVERITIES = { 1: 'mild', 2: 'moderate', 3: 'strong' };
 
+// 'blur' hides the picture (the video goes dark). A real blur filter over a
+// full-size video costs a multi-pass GPU effect on every frame and makes
+// playback stutter, so the name is kept for compatibility but not the effect.
 export const ACTIONS = ['skip', 'mute', 'blur'];
+export const ACTION_LABELS = { skip: 'skip', mute: 'mute', blur: 'hide picture' };
 
 const t = (nudity, sex, violence, gore, language, drugs, frightening) => ({
   nudity, sex, violence, gore, language, drugs, frightening,

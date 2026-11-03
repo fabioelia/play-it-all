@@ -1,4 +1,4 @@
-import { ACTIONS, CATEGORIES, PRESETS, PRESET_ORDER, SEVERITIES, defaultProfile } from '../../../shared/ratings.js';
+import { ACTIONS, ACTION_LABELS, CATEGORIES, PRESETS, PRESET_ORDER, SEVERITIES, defaultProfile } from '../../../shared/ratings.js';
 import { formatTime } from '../../../shared/identity.js';
 import { CATEGORY_COLORS } from '../content/overlay.js';
 
@@ -85,7 +85,7 @@ function renderActions() {
     const label = document.createElement('label');
     label.textContent = c.label;
     const sel = document.createElement('select');
-    for (const a of ACTIONS) sel.append(new Option(a, a));
+    for (const a of ACTIONS) sel.append(new Option(ACTION_LABELS[a], a));
     sel.value = settings.profile.actions?.[c.id] || c.defaultAction;
     sel.addEventListener('change', () => {
       settings.profile.actions = { ...settings.profile.actions, [c.id]: sel.value };
@@ -190,7 +190,7 @@ function renderUpcoming() {
     const when = document.createElement('span');
     when.textContent = `${formatTime(r.start)}–${formatTime(r.end)}`;
     const what = document.createElement('span');
-    what.textContent = `${r.action} · ${r.reasons.map((x) => `${x.category} (${SEVERITIES[x.severity]})`).join(', ')}`;
+    what.textContent = `${ACTION_LABELS[r.action] || r.action} · ${r.reasons.map((x) => `${x.category} (${SEVERITIES[x.severity]})`).join(', ')}`;
     const btn = document.createElement('button');
     btn.className = 'mini';
     btn.textContent = disabled.has(r.key) ? 'Cut' : 'Let play';

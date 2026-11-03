@@ -3,7 +3,7 @@
 **Watch any show at the rating you choose.** CleanCut is a browser extension
 that runs on top of Netflix and Prime Video (and any page with a `<video>`).
 It recognizes what's playing, looks up timestamped content tags, and **skips,
-mutes or blurs** the scenes above your chosen rating. Take *Game of Thrones*
+mutes or hides the picture of** the scenes above your chosen rating. Take *Game of Thrones*
 and watch an R, PG-13, PG or G cut of it.
 
 It has three parts:
@@ -33,7 +33,7 @@ presets, the decision engine, subtitle parsing and the subtitle analyzer.
  network calls ──┼─▶ sees manifest / metadata JSON ──────▶ identify title ──▶ lookup ─────────────┐                  │
                  │   fetches full English SDH subtitles ─▶ analyzer: profanity + [sound cues] ─────┤                  │
                  │   Netflix seek bridge ◀──────────────── engine: decide(t) every 100 ms ◀── plan ◀┘                  │
-                 │                                          │ skip → seek past   mute → video.muted   blur → CSS filter │
+                 │                                          │ skip → seek past   mute → video.muted   hide → dark video │
                  └──────────────────────────────────────────┼─────────────────────────────────────────────────────────┘
                                                             ▼
                                    background worker ──▶ community API (/v1/lookup, /v1/segments, /v1/profiles)
@@ -53,10 +53,10 @@ presets, the decision engine, subtitle parsing and the subtitle analyzer.
    - **Scan-ahead:** the subtitle track is analyzed the moment the player
      downloads it, before the scenes play (see below).
 3. **Plan.** Your profile sets the highest severity allowed per category. Every
-   segment above it becomes an action (skip, mute or blur). Nearby regions are
+   segment above it becomes an action (skip, mute or hide picture). Nearby regions are
    merged so playback doesn't stutter.
 4. **Act.** A 100 ms loop compares playback time against the plan and skips,
-   mutes or blurs. A toast shows what happened, with **Undo**, which lets that
+   mutes or hides the picture. A toast shows what happened, with **Undo**, which lets that
    scene play.
 
 ### Ratings
@@ -73,7 +73,10 @@ allowed to play; anything above it is cut.
 | Custom | per-category sliders | | | | | | |
 
 By default, language is **muted** (captions hide too) and everything else is
-**skipped**. Any category can be set to skip, mute or blur instead.
+**skipped**. Any category can be set to skip, mute or *hide picture* instead.
+*Hide picture* darkens the video rather than blurring it: a blur filter over a
+full-size video stuttered playback badly in testing, while darkening is a
+single cheap pass. It is stored as `blur` for compatibility.
 
 ### Scan-ahead with lightweight models
 
@@ -212,10 +215,16 @@ compares main-thread script time, style and layout work, and dropped frames
 with and without the extension. Add `PROFILE=1` to print the hottest
 functions.
 
+`npm run bench:playback` checks playback smoothness while a viewer uses the
+controls. It plays a 1080p video on the same fake page with a mock control
+bar, moves the mouse and clicks pause and play, and reports janky frames,
+input delay (Event Timing), dropped video frames, and style and layout work.
+`BROKEN_API=1` simulates Netflix's seek API being unavailable.
+
 The end-to-end test plays the demo episode and checks:
 
 - the community-tagged skip, the scan-ahead skip, mute and unmute, and gore;
-- the blur action;
+- the hide-picture action;
 - R, PG-13 and unfiltered producing different cuts;
 - Undo and adopting a published list;
 - keyboard tagging;
@@ -233,7 +242,8 @@ The end-to-end test plays the demo episode and checks:
   selectors.
 - **Netflix seeking** goes through the player's own API, because setting
   `video.currentTime` crashes the Netflix player (error M7375). If Netflix
-  changes that API, skips fail and mutes and blurs keep working.
+  changes that API, CleanCut notices the failed seek, says so once, and covers
+  skip regions by muting and hiding the picture instead.
 - **Prime Video** can offset media time from programme time (and ad breaks
   shift it further). The adapter recalibrates against the on-screen clock
   whenever it is visible, and the popup has a manual **Sync** nudge.
@@ -246,7 +256,7 @@ The end-to-end test plays the demo episode and checks:
   default to suggestions. People confirming tags is what makes a cut reliable.
 - **Seeing a skipped scene's first frames.** The engine acts about 150 ms
   early and pads each region, but the first fraction of a second of a scene
-  can show. Use *blur* for categories where that matters.
+  can show. Use *hide picture* for categories where that matters.
 - **Legal.** In the US, the Family Movie Act of 2005 permits skipping and
   muting parts of a film during private home viewing, as long as no altered
   copy is made. CleanCut works that way: it never copies, modifies or

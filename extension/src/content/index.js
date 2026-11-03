@@ -70,6 +70,8 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
     disabled: new Set(),
     video: null,
     mutedByUs: false,
+    seekPending: false,
+    seekBroken: false, // the player refused to seek: cover skip regions instead
     captionsHidden: false,
     prevMuted: false,
     blurred: false,
@@ -78,11 +80,12 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
     stats: { skips: 0, mutes: 0 },
   };
 
-  // ---- styles for blur and caption hiding (page DOM, not shadow) -------------
+  // ---- styles for hiding the picture and captions (page DOM, not shadow) ----------
 
   const style = document.createElement('style');
   style.textContent = `
-    video.cleancut-blur { filter: blur(48px) saturate(.3) brightness(.7) !important; transition: filter .15s; }
+    /* brightness(0) is a single cheap colour pass; blur() stuttered playback. */
+    video.cleancut-blur { filter: brightness(0) !important; }
     .cleancut-hide-captions { visibility: hidden !important; }`;
   (document.head || document.documentElement).append(style);
 
@@ -141,7 +144,7 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
     const key = state.key;
     if (!refresh) {
       restorePlayback();
-      Object.assign(state, { remote: [], local: [], subtitle: [], subtitleInfo: null, profiles: [], borrowedFrom: null, disabled: new Set(), lastSeek: null, markStart: null });
+      Object.assign(state, { remote: [], local: [], subtitle: [], subtitleInfo: null, profiles: [], borrowedFrom: null, disabled: new Set(), lastSeek: null, seekPending: false, markStart: null });
       const pending = state.pendingSubs.get(ident.platformId) || state.pendingSubs.get('__unassigned');
       if (pending) handleSubtitles(pending, true);
       state.pendingSubs.clear();
@@ -173,7 +176,6 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
     const video = adapter.findVideo();
     if (video !== state.video) attachVideo(video);
     overlay.attach();
-    overlay.position();
     if (!video) return;
     const ident = adapter.identify();
     if (!ident) return;
@@ -260,6 +262,7 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
     const v = state.video;
     if (v && state.mutedByUs) v.muted = state.prevMuted;
     if (v && state.blurred) v.classList.remove('cleancut-blur');
+    if (state.blurred) overlay.setCover(null);
     state.mutedByUs = false;
     state.blurred = false;
     if (state.captionsHidden) setCaptionsHidden(false);
@@ -278,45 +281,67 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
     overlay.setPlayhead(t, duration);
     const d = decide(t, state.plan.actions, { disabled: state.disabled });
 
-    if (d.skipTo !== null) {
+    if (d.skipTo !== null && !state.seekBroken) {
       const now = performance.now();
       const target = Number.isFinite(duration) ? Math.min(d.skipTo, duration - 0.25) : d.skipTo;
       const recent = state.lastSeek && Math.abs(state.lastSeek.target - target) < 0.5 && now - state.lastSeek.at < 2500;
-      if (!recent) {
+      // Never interrupt a seek that is still buffering: re-seeking restarts it,
+      // which is exactly what stutter looks like.
+      if (!recent && !state.seekPending && !video.seeking) {
         state.lastSeek = { target, at: now };
+        state.seekPending = true;
         const region = d.skipRegion;
-        adapter.seek(video, target);
-        state.stats.skips++;
-        overlay.toast(`Skipped ${formatTime(target - Math.max(t, region.start))} · ${reasonText(region.reasons)}`, {
-          color: CATEGORY_COLORS[region.reasons[0]?.category],
-          actionLabel: 'Undo',
-          onAction: () => {
-            state.disabled.add(region.key);
-            state.lastSeek = null;
-            adapter.seek(video, region.start);
-          },
+        const from = Math.max(t, region.start);
+        const key = state.key;
+        Promise.resolve(adapter.seek(video, target)).then((ok) => {
+          state.seekPending = false;
+          if (state.key !== key) return;
+          if (ok === false) {
+            // The player would not seek (on Netflix: its internal API changed).
+            // Hide the scene another way rather than let it play.
+            state.seekBroken = true;
+            overlay.toast("This player won't let CleanCut skip, so those scenes will be muted with the picture hidden instead.", { color: '#f9a825', ms: 8000 });
+            tick();
+            return;
+          }
+          state.stats.skips++;
+          overlay.toast(`Skipped ${formatTime(target - from)} · ${reasonText(region.reasons)}`, {
+            color: CATEGORY_COLORS[region.reasons[0]?.category],
+            actionLabel: 'Undo',
+            onAction: () => {
+              state.disabled.add(region.key);
+              state.lastSeek = null;
+              adapter.seek(video, region.start);
+            },
+          });
         });
       }
     }
+    // Fallback when skipping is impossible: cover the scene instead.
+    const cover = state.seekBroken && d.skipTo !== null;
+    const mute = d.mute || cover;
+    const blur = d.blur || cover;
 
     const hideCaptions = effectiveProfile().hideCaptionsWhileMuted !== false;
-    if (d.mute && !state.mutedByUs) {
+    if (mute && !state.mutedByUs) {
       state.prevMuted = video.muted;
       video.muted = true;
       state.mutedByUs = true;
       state.stats.mutes++;
       if (hideCaptions) setCaptionsHidden(true);
-    } else if (!d.mute && state.mutedByUs) {
+    } else if (!mute && state.mutedByUs) {
       video.muted = state.prevMuted;
       state.mutedByUs = false;
       setCaptionsHidden(false);
-    } else if (d.mute && hideCaptions) {
+    } else if (mute && hideCaptions) {
       setCaptionsHidden(true); // players re-render caption nodes constantly
     }
 
-    if (d.blur !== state.blurred) {
-      video.classList.toggle('cleancut-blur', d.blur);
-      state.blurred = d.blur;
+    if (blur !== state.blurred) {
+      video.classList.toggle('cleancut-blur', blur);
+      state.blurred = blur;
+      const hidden = d.active.filter((r) => r.action === 'blur' || (cover && r.action === 'skip'));
+      overlay.setCover(blur ? `Picture hidden · ${reasonText(hidden.flatMap((r) => r.reasons))}` : null);
     }
   }
 
@@ -466,5 +491,5 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
     setInterval(identify, IDENTIFY_MS);
     setInterval(tick, TICK_MS);
   });
-  window.addEventListener('resize', () => overlay.position());
+  window.addEventListener('resize', () => overlay.remeasure());
 })();

@@ -92,6 +92,11 @@ async function run(label, ext) {
   else args.push('--disable-extensions');
   const ctx = await chromium.launchPersistentContext(join(tmp, `p-${label}`), { channel: 'chromium', headless: true, viewport: { width: 1280, height: 720 }, ignoreHTTPSErrors: true, args });
   const p = await ctx.newPage();
+  // The extension opens its options page on first install; a background tab
+  // gets throttled rendering and timers, so keep ours the only, foreground tab.
+  await p.waitForTimeout(500);
+  for (const other of ctx.pages()) if (other !== p) await other.close();
+  await p.bringToFront();
   await p.goto(`https://www.netflix.com/watch/${VIDEO_ID}`);
   await p.waitForFunction(() => document.getElementById('v').currentTime > 0.5, null, { timeout: 15000 });
   await p.waitForTimeout(2000); // warm-up: startup work is not what we measure
