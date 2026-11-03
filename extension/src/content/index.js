@@ -660,6 +660,7 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
     restorePlayback();
     overlay.destroy();
     hookPort?.close();
+    window.__cleancutContent = false; // a fresh copy (after the extension reloads) may start
   }
 
   loadSettings().then(() => {

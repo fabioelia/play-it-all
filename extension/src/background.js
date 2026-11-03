@@ -296,11 +296,18 @@ const SCRIPTS = {
   content: { id: 'cleancut-content', js: ['content.js'], runAt: 'document_idle', world: 'ISOLATED' },
 };
 
-async function syncContentScripts() {
+/**
+ * Register the parts that are switched on. The registration persists across
+ * sessions, so at browser start (while tabs are being restored) nothing is
+ * unregistered and reloaded unless it differs; install, update and setParts
+ * always re-register.
+ */
+async function syncContentScripts({ force = true } = {}) {
   const { parts = {} } = await chrome.storage.local.get('parts');
   const wanted = Object.entries(SCRIPTS).filter(([name]) => parts[name] !== false).map(([, s]) => s);
   const existing = await chrome.scripting.getRegisteredContentScripts();
   const ours = existing.map((s) => s.id).filter((id) => Object.values(SCRIPTS).some((s) => s.id === id));
+  if (!force && ours.length === wanted.length && wanted.every((s) => ours.includes(s.id))) return { registered: ours };
   if (ours.length) await chrome.scripting.unregisterContentScripts({ ids: ours });
   if (wanted.length) {
     await chrome.scripting.registerContentScripts(wanted.map((s) => ({ ...s, matches: __CLEANCUT_MATCHES__, persistAcrossSessions: true })));
@@ -326,4 +333,4 @@ chrome.runtime.onInstalled.addListener(async ({ reason }) => {
   if (!s.profile) await chrome.storage.sync.set({ settings: { enabled: true, ...s, profile: defaultProfile() } });
   if (reason === 'install') chrome.runtime.openOptionsPage?.();
 });
-chrome.runtime.onStartup.addListener(() => syncContentScripts());
+chrome.runtime.onStartup.addListener(() => syncContentScripts({ force: false }));
