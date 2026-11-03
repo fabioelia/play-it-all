@@ -232,6 +232,12 @@ bar, moves the mouse and clicks pause and play, and reports janky frames,
 input delay (Event Timing), dropped video frames, and style and layout work.
 `BROKEN_API=1` simulates Netflix's seek API being unavailable.
 
+`npm run trace -- <file>` summarises a Performance recording made in Chrome
+DevTools on the real site (Performance → record → Save profile). It reports
+main-thread time per owner (the page, CleanCut, other extensions), long
+tasks, frame presentation, input latency, and whether CleanCut skipped, muted
+or hid anything during the recording.
+
 The end-to-end test plays the demo episode and checks:
 
 - the community-tagged skip, the scan-ahead skip, mute and unmute, and gore;
