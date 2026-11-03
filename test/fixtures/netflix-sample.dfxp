@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<tt xmlns:tt="http://www.w3.org/ns/ttml" xmlns="http://www.w3.org/ns/ttml" xmlns:ttp="http://www.w3.org/ns/ttml#parameter" ttp:tickRate="10000000" ttp:timeBase="media" xml:lang="en">
+<body><div>
+<p begin="10000000t" end="30000000t" region="region_00" xml:id="subtitle1">[wind howling]</p>
+<p begin="50000000t" end="80000000t" xml:id="subtitle2"><span style="style_0">What the fuck</span><br/><span>is that?</span></p>
+<p begin="400000000t" end="420000000t" xml:id="subtitle3">[woman moaning]</p>
+<p begin="450000000t" end="470000000t" xml:id="subtitle4">[bed creaking]</p>
+<p begin="480000000t" end="500000000t" xml:id="subtitle5">[both moaning]</p>
+<p begin="900000000t" end="930000000t" xml:id="subtitle6">[sword clashing]</p>
+<p begin="940000000t" end="960000000t" xml:id="subtitle7">[man screams]<br/>[squelching]</p>
+<p begin="1200000000t" end="1230000000t" xml:id="subtitle8">Tom &amp; Jerry, the class assignment.</p>
+</div></body></tt>

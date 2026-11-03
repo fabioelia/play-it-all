@@ -1,0 +1,9 @@
+{
+  "catalogMetadata": {
+    "catalog": { "id": "demo-episode-1", "type": "EPISODE", "title": "Pilot", "episodeNumber": 1, "runtimeSeconds": 90 },
+    "family": { "tvAncestors": [ { "catalog": { "type": "SEASON", "seasonNumber": 1 } }, { "catalog": { "type": "SHOW", "title": "CleanCut Demo" } } ] }
+  },
+  "timedTextUrls": { "result": { "subtitleUrls": [
+    { "url": "/demo.vtt", "languageCode": "en-us", "type": "sdh", "format": "vtt" }
+  ] } }
+}

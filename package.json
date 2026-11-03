@@ -1,0 +1,22 @@
+{
+  "name": "cleancut",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Rate-your-own-cut: a browser extension that skips, mutes or blurs explicit scenes on Netflix and Prime Video, backed by a community database of timestamped content tags.",
+  "type": "module",
+  "license": "MIT",
+  "engines": { "node": ">=22.13" },
+  "bin": { "cleancut-scan": "scanner/src/cli.js" },
+  "scripts": {
+    "build": "node extension/build.mjs",
+    "watch": "node extension/build.mjs --watch",
+    "server": "node --disable-warning=ExperimentalWarning server/src/index.js",
+    "scan": "node scanner/src/cli.js",
+    "demo:video": "sh scripts/make-demo-video.sh",
+    "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js",
+    "test:e2e": "npm run build && node --disable-warning=ExperimentalWarning test/e2e/extension.e2e.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

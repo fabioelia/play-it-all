@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>CleanCut</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <div class="brand"><img src="icons/icon-32.png" alt="" width="20" height="20"> CleanCut</div>
+    <label class="switch" title="Turn filtering on or off">
+      <input type="checkbox" id="enabled"><span class="track"><span class="knob"></span></span>
+      <span class="sr">Filtering enabled</span>
+    </label>
+  </header>
+
+  <section id="now" class="card">
+    <div class="muted small" id="now-site">Not on a supported player</div>
+    <div class="title" id="now-title"></div>
+    <div class="small" id="now-sources"></div>
+    <div class="small warn" id="now-warning" hidden></div>
+    <div class="row" id="sync-row" hidden>
+      <span class="small">Sync</span>
+      <button class="mini" data-offset="-1" title="Cuts happen 1s earlier">−1s</button>
+      <button class="mini" data-offset="-0.2">−0.2</button>
+      <output id="offset">0.0s</output>
+      <button class="mini" data-offset="0.2">+0.2</button>
+      <button class="mini" data-offset="1" title="Cuts happen 1s later">+1s</button>
+    </div>
+    <button id="inject" class="wide" hidden>Enable CleanCut on this tab</button>
+  </section>
+
+  <section class="card">
+    <div class="section-head"><h2>Make it rated</h2><span class="small muted" id="list-note"></span></div>
+    <div class="presets" role="radiogroup" aria-label="Rating" id="presets"></div>
+    <div id="custom" hidden></div>
+    <details>
+      <summary>How cuts happen</summary>
+      <div id="actions"></div>
+      <label class="check"><input type="checkbox" id="ai-enabled"> Act on scan-ahead detections (subtitle analysis)</label>
+      <label class="range">Only when confidence ≥ <output id="ai-conf-out"></output>
+        <input type="range" id="ai-conf" min="0.3" max="0.95" step="0.05"></label>
+      <label class="check"><input type="checkbox" id="lang-word"> Mute just the word (estimated), not the whole line</label>
+      <label class="check"><input type="checkbox" id="hide-captions"> Hide captions while muted</label>
+    </details>
+  </section>
+
+  <section class="card" id="upcoming-card" hidden>
+    <div class="section-head"><h2>Cuts in this episode</h2><span class="small muted" id="skipped"></span></div>
+    <ol id="upcoming"></ol>
+  </section>
+
+  <section class="card" id="lists-card" hidden>
+    <div class="section-head"><h2>Community skip lists</h2></div>
+    <div id="active-list" class="small" hidden></div>
+    <ul id="lists"></ul>
+  </section>
+
+  <section class="card" id="tag-card" hidden>
+    <div class="section-head"><h2>Tag a scene</h2><span class="small muted">Alt+[ start · Alt+] end</span></div>
+    <div class="row">
+      <button id="mark-start">Mark start</button>
+      <button id="mark-end">Mark end…</button>
+    </div>
+    <div class="small muted" id="mark-state"></div>
+  </section>
+
+  <footer>
+    <button id="publish" class="link">Publish my settings as a skip list…</button>
+    <button id="options" class="link">Options</button>
+  </footer>
+
+  <dialog id="publish-dialog">
+    <form method="dialog">
+      <h2>Publish a skip list</h2>
+      <p class="small muted">Shares your rating settings (and which segments you let play) so others can use them.</p>
+      <label>Name <input id="pub-name" required minlength="3" maxlength="80" placeholder="e.g. GoT for teens"></label>
+      <label>Description <textarea id="pub-desc" maxlength="1000" rows="3" placeholder="What does this cut keep and remove?"></textarea></label>
+      <label class="check"><input type="checkbox" id="pub-title" checked> Only for <span id="pub-title-name">this title</span></label>
+      <div class="small warn" id="pub-error"></div>
+      <div class="row end"><button value="cancel" formnovalidate>Cancel</button><button id="pub-go" value="ok" class="primary">Publish</button></div>
+    </form>
+  </dialog>
+  <script src="popup.js"></script>
+</body>
+</html>

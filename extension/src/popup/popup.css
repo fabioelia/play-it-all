@@ -1,0 +1,63 @@
+:root {
+  --bg: #121216; --card: #1c1c22; --line: #2e2e36; --text: #ececf1; --muted: #9a9aa6;
+  --accent: #4f7cff; --warn: #f9a825; --ok: #7cb342; --bad: #e53935;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; width: 360px; background: var(--bg); color: var(--text); font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+.brand { display: flex; gap: 8px; align-items: center; font-weight: 700; font-size: 15px; }
+.card { margin: 10px; padding: 10px 12px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+.section-head { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+h2 { font-size: 13px; margin: 0; }
+.title { font-weight: 600; font-size: 14px; margin: 2px 0 4px; }
+.small { font-size: 12px; }
+.muted { color: var(--muted); }
+.warn { color: var(--warn); }
+.row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 8px; }
+.row.end { justify-content: flex-end; }
+button { font: inherit; color: var(--text); background: #2a2a32; border: 1px solid var(--line); border-radius: 7px; padding: 5px 10px; cursor: pointer; }
+button:hover { border-color: #555; }
+button.primary { background: var(--accent); border-color: var(--accent); }
+button.mini { padding: 2px 7px; font-size: 12px; }
+button.wide { width: 100%; margin-top: 8px; }
+button.link { background: none; border: 0; color: #8ab4ff; padding: 0; }
+button:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid #8ab4ff; outline-offset: 2px; }
+output { min-width: 44px; text-align: center; font-variant-numeric: tabular-nums; }
+.presets { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; }
+.presets button { padding: 6px 0; font-weight: 600; font-size: 12px; }
+.presets button[aria-checked=true] { background: var(--accent); border-color: var(--accent); }
+#custom { margin-top: 10px; display: grid; gap: 6px; }
+.cat-row { display: grid; grid-template-columns: 96px 1fr 64px; gap: 8px; align-items: center; font-size: 12px; }
+.cat-row .lvl { color: var(--muted); text-align: right; }
+input[type=range] { width: 100%; accent-color: var(--accent); }
+details { margin-top: 10px; }
+summary { cursor: pointer; color: var(--muted); font-size: 12px; }
+#actions { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 10px; margin: 8px 0; }
+#actions label { display: flex; justify-content: space-between; align-items: center; font-size: 12px; gap: 6px; }
+select, input[type=text], input:not([type]), textarea { font: inherit; color: var(--text); background: #2a2a32; border: 1px solid var(--line); border-radius: 6px; padding: 3px 6px; }
+label.check { display: flex; gap: 6px; align-items: center; margin: 6px 0; font-size: 12px; }
+label.range { display: block; font-size: 12px; margin: 6px 0; }
+#upcoming { list-style: none; padding: 0; margin: 0; max-height: 180px; overflow: auto; }
+#upcoming li { display: grid; grid-template-columns: 10px 86px 1fr auto; gap: 8px; align-items: center; padding: 4px 0; border-top: 1px solid var(--line); font-size: 12px; }
+#upcoming li:first-child { border-top: 0; }
+#upcoming li.off { opacity: .45; text-decoration: line-through; }
+#upcoming li.past { opacity: .6; }
+.dot { width: 10px; height: 10px; border-radius: 50%; }
+#lists { list-style: none; padding: 0; margin: 0; }
+#lists li { padding: 6px 0; border-top: 1px solid var(--line); display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+#lists li:first-child { border-top: 0; }
+#lists .name { font-weight: 600; }
+footer { display: flex; justify-content: space-between; padding: 4px 14px 14px; }
+.switch { position: relative; display: inline-flex; cursor: pointer; }
+.switch input { position: absolute; opacity: 0; width: 0; height: 0; }
+.switch .track { width: 38px; height: 22px; background: #444; border-radius: 999px; position: relative; transition: background .15s; }
+.switch .knob { position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; background: #fff; border-radius: 50%; transition: left .15s; }
+.switch input:checked + .track { background: var(--accent); }
+.switch input:checked + .track .knob { left: 19px; }
+.switch input:focus-visible + .track { outline: 2px solid #8ab4ff; outline-offset: 2px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+dialog { background: var(--card); color: var(--text); border: 1px solid var(--line); border-radius: 12px; width: 320px; }
+dialog::backdrop { background: rgba(0,0,0,.6); }
+dialog label { display: block; margin: 8px 0; font-size: 12px; }
+dialog input:not([type=checkbox]), dialog textarea { width: 100%; margin-top: 4px; }

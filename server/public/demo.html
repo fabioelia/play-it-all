@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CleanCut demo player</title>
+  <!-- Any site can declare what is playing; CleanCut's generic adapter reads these. -->
+  <meta name="cleancut:id" content="demo-episode-1">
+  <meta name="cleancut:series" content="CleanCut Demo">
+  <meta name="cleancut:season" content="1">
+  <meta name="cleancut:episode" content="1">
+  <meta name="cleancut:title" content="Pilot">
+  <style>
+    :root { --bg: #f6f6f8; --card: #fff; --text: #17171c; --muted: #61616b; --line: #e2e2e8; --accent: #3d63e6; color-scheme: light; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #111115; --card: #1b1b21; --text: #ececf1; --muted: #a0a0ab; --line: #2d2d35; --accent: #7a9bff; color-scheme: dark; } }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    main { max-width: 860px; margin: 0 auto; padding: 24px 16px 48px; }
+    h1 { font-size: 24px; margin: 0 0 4px; }
+    p { color: var(--muted); margin: 6px 0; }
+    video { width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 10px; display: block; margin: 16px 0; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }
+    .card h2 { font-size: 14px; margin: 0 0 6px; }
+    ul { margin: 0; padding-left: 18px; }
+    li { margin: 2px 0; }
+    button { font: inherit; padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line); background: var(--accent); color: #fff; cursor: pointer; }
+    #log { font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; max-height: 180px; overflow: auto; white-space: pre-wrap; color: var(--muted); }
+    .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 6px; vertical-align: middle; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>CleanCut demo player</h1>
+  <p>A stand-in for a streaming episode, so the extension can run without DRM content. Install the extension, start the server (<code>npm run server</code>), then press play. Use the extension's toolbar button to pick a rating.</p>
+
+  <video id="v" controls preload="auto" crossorigin="anonymous">
+    <source src="/demo.webm" type="video/webm">
+  </video>
+
+  <div class="grid">
+    <section class="card">
+      <h2>What's in this "episode"</h2>
+      <ul>
+        <li><span class="sw" style="background:#e53935"></span>0:20–0:30 strong violence: tagged by the community</li>
+        <li><span class="sw" style="background:#c2185b"></span>0:44–0:52 sexual content: <em>not tagged</em>, found by scan-ahead from SDH captions</li>
+        <li><span class="sw" style="background:#f9a825"></span>1:00–1:02 strong language: found by scan-ahead</li>
+        <li><span class="sw" style="background:#8e0000"></span>1:10–1:15 strong gore: tagged by the community</li>
+      </ul>
+    </section>
+    <section class="card">
+      <h2>Setup</h2>
+      <p>Seed the community tags for this episode on your local server:</p>
+      <button id="seed">Seed demo tags</button>
+      <p id="seed-status"></p>
+    </section>
+  </div>
+
+  <section class="card" style="margin-top:12px">
+    <h2>Player events</h2>
+    <div id="log"></div>
+  </section>
+</main>
+<script>
+  const v = document.getElementById('v');
+  const logEl = document.getElementById('log');
+  const events = (window.cleancutDemoEvents = []);
+  const fmt = (t) => t.toFixed(2).padStart(6);
+  const log = (type, detail) => {
+    events.push({ type, at: performance.now(), ...detail });
+    logEl.textContent = `${fmt(v.currentTime)}s  ${type}${detail ? '  ' + JSON.stringify(detail) : ''}\n` + logEl.textContent;
+  };
+  let lastTime = 0;
+  v.addEventListener('timeupdate', () => (lastTime = v.currentTime));
+  v.addEventListener('seeking', () => log('seek', { from: +lastTime.toFixed(2), to: +v.currentTime.toFixed(2) }));
+  v.addEventListener('volumechange', () => log(v.muted ? 'muted' : 'unmuted'));
+  new MutationObserver(() => log(v.classList.contains('cleancut-blur') ? 'blurred' : 'unblurred'))
+    .observe(v, { attributes: true, attributeFilter: ['class'] });
+
+  // Two ways to provide captions, matching how real players work:
+  //  default      a <track> element (what non-DRM sites do)
+  //  ?mode=hook   the player fetches a playback-resources JSON listing subtitle
+  //               URLs (how Prime Video works); CleanCut's page hook finds and
+  //               scans the track without it ever being shown.
+  if (new URLSearchParams(location.search).get('mode') === 'hook') {
+    fetch('/demo-playback.json').then((r) => r.json()).then(() => log('player fetched playback resources'));
+  } else {
+    const track = document.createElement('track');
+    Object.assign(track, { kind: 'captions', srclang: 'en', label: 'English [CC]', src: '/demo.vtt' });
+    v.append(track);
+  }
+
+  document.getElementById('seed').addEventListener('click', async () => {
+    const status = document.getElementById('seed-status');
+    try {
+      let key = localStorage.getItem('cleancut-demo-key');
+      if (!key) {
+        const u = await (await fetch('/v1/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'demo-seeder' }) })).json();
+        key = u.apiKey;
+        localStorage.setItem('cleancut-demo-key', key);
+      }
+      const res = await fetch('/v1/segments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
+        body: JSON.stringify({
+          title: { platform: 'web', platformId: 'demo-episode-1', series: 'CleanCut Demo', season: 1, episode: 1, name: 'Pilot', duration: 90 },
+          segments: [
+            { start: 20, end: 30, category: 'violence', severity: 3, note: 'sword fight' },
+            { start: 70, end: 75, category: 'gore', severity: 3, note: 'aftermath' },
+          ],
+        }),
+      });
+      const body = await res.json();
+      if (!res.ok) throw new Error(body.error);
+      status.textContent = `Seeded ${body.ids.length} tags. Reload the page so the extension picks them up.`;
+    } catch (e) {
+      status.textContent = `Failed: ${e.message}. Is the server running?`;
+    }
+  });
+</script>
+</body>
+</html>
