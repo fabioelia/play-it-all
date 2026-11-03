@@ -100,5 +100,20 @@ $('import').addEventListener('change', async (e) => {
   }
 });
 
+async function showParts() {
+  const p = await chrome.runtime.sendMessage({ type: 'getParts' });
+  $('part-hook').checked = p.hook;
+  $('part-content').checked = p.content;
+  say('parts-status', `Running in pages: ${p.registered.length ? p.registered.map((id) => id.replace('cleancut-', '')).join(', ') : 'nothing'}. Reload the streaming tab after a change.`);
+}
+for (const [id, part] of [['part-hook', 'hook'], ['part-content', 'content']]) {
+  $(id).addEventListener('change', async (e) => {
+    const res = await chrome.runtime.sendMessage({ type: 'setParts', parts: { [part]: e.target.checked } });
+    if (res?.error) say('parts-status', res.error, false);
+    else showParts();
+  });
+}
+
 showCatalog();
 renderTags();
+showParts();

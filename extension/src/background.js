@@ -266,8 +266,45 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   return true;
 });
 
+// ---- what runs in streaming pages ------------------------------------------------
+//
+// Registered here rather than in the manifest so each part can be switched
+// off (Options → Troubleshooting) to find what slows a page down:
+//   hook     page-hook.js, page world, document_start: notices subtitle tracks
+//   content  content.js, document_idle: skipping, muting, overlay, tagging
+
+const SCRIPTS = {
+  hook: { id: 'cleancut-hook', js: ['page-hook.js'], runAt: 'document_start', world: 'MAIN' },
+  content: { id: 'cleancut-content', js: ['content.js'], runAt: 'document_idle', world: 'ISOLATED' },
+};
+
+async function syncContentScripts() {
+  const { parts = {} } = await chrome.storage.local.get('parts');
+  const wanted = Object.entries(SCRIPTS).filter(([name]) => parts[name] !== false).map(([, s]) => s);
+  const existing = await chrome.scripting.getRegisteredContentScripts();
+  const ours = existing.map((s) => s.id).filter((id) => Object.values(SCRIPTS).some((s) => s.id === id));
+  if (ours.length) await chrome.scripting.unregisterContentScripts({ ids: ours });
+  if (wanted.length) {
+    await chrome.scripting.registerContentScripts(wanted.map((s) => ({ ...s, matches: __CLEANCUT_MATCHES__, persistAcrossSessions: true })));
+  }
+  return { registered: wanted.map((s) => s.id) };
+}
+
+handlers.setParts = async (m) => {
+  const { parts = {} } = await chrome.storage.local.get('parts');
+  await chrome.storage.local.set({ parts: { ...parts, ...m.parts } });
+  return syncContentScripts();
+};
+handlers.getParts = async () => {
+  const { parts = {} } = await chrome.storage.local.get('parts');
+  const registered = (await chrome.scripting.getRegisteredContentScripts()).map((s) => s.id);
+  return { hook: parts.hook !== false, content: parts.content !== false, registered };
+};
+
 chrome.runtime.onInstalled.addListener(async ({ reason }) => {
+  await syncContentScripts();
   const s = await settings();
   if (!s.profile) await chrome.storage.sync.set({ settings: { enabled: true, ...s, profile: defaultProfile() } });
   if (reason === 'install') chrome.runtime.openOptionsPage?.();
 });
+chrome.runtime.onStartup.addListener(() => syncContentScripts());

@@ -39,6 +39,14 @@
   </section>
 
   <section class="card">
+    <h2>Troubleshooting</h2>
+    <p class="small muted">If a site feels slow with CleanCut on, switch these off one at a time, reload the site, and see which one makes the difference.</p>
+    <label class="check"><input type="checkbox" id="part-hook"> Network hook: finds the episode's subtitle track (starts before the page's own scripts)</label>
+    <label class="check"><input type="checkbox" id="part-content"> On-page script: skipping, muting, the overlay and tagging (starts after the page loads)</label>
+    <div class="small" id="parts-status"></div>
+  </section>
+
+  <section class="card">
     <h2>How to tag and share</h2>
     <p class="small">While watching, press <code>Alt+[</code> when a scene starts and <code>Alt+]</code> when it ends, then pick a category and severity. Your tags apply right away, for you.</p>
     <p class="small">To share them, open the CleanCut popup and click <strong>Share on GitHub</strong>. It opens a prefilled issue, and a bot turns it into a pull request for the catalog. <a id="contributing" target="_blank" rel="noopener">How the catalog works</a>.</p>

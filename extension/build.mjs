@@ -50,10 +50,9 @@ function manifest(target) {
     permissions: ['storage', 'scripting', 'activeTab'],
     host_permissions: [...STREAMING, ...CATALOG, ...DEV],
     optional_host_permissions: ['https://*/*', 'http://*/*'],
-    content_scripts: [
-      { matches: [...STREAMING, ...DEV], js: ['page-hook.js'], run_at: 'document_start', world: 'MAIN' },
-      { matches: [...STREAMING, ...DEV], js: ['content.js'], run_at: 'document_idle' },
-    ],
+    // No static content_scripts: the background worker registers them
+    // (chrome.scripting.registerContentScripts) so each part can be switched
+    // off from Options → Troubleshooting without uninstalling.
   };
   if (target === 'firefox') {
     m.background = { scripts: ['background.js'] };
@@ -159,7 +158,7 @@ for (const target of ['chrome', 'firefox']) {
     format: 'iife',
     target: target === 'chrome' ? ['chrome111'] : ['firefox128'],
     legalComments: 'none',
-    define: { __CLEANCUT_BUILD__: JSON.stringify(BUILD) },
+    define: { __CLEANCUT_BUILD__: JSON.stringify(BUILD), __CLEANCUT_MATCHES__: JSON.stringify([...STREAMING, ...DEV]) },
     logLevel: 'warning',
   };
   if (watch) {
