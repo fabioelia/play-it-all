@@ -153,9 +153,9 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
     state.online = !!res?.online;
     state.lookupError = res?.error || null;
     replan();
-    if (state.settings.enabled && state.plan.flagged.length) {
-      const n = state.plan.actions.length;
-      overlay.toast(`${displayTitle(ident.meta)} — ${n} cut${n === 1 ? '' : 's'} for ${activeList()?.name || describeProfile(effectiveProfile())}`, { ms: 4000 });
+    if (state.settings.enabled && state.remote.length + state.local.length) {
+      const n = state.remote.length + state.local.length;
+      overlay.toast(`${displayTitle(ident.meta)} · ${n} tagged scene${n === 1 ? '' : 's'} · filtering at ${activeList()?.name || describeProfile(effectiveProfile())}`, { ms: 4000 });
     }
     if (state.borrowedFrom) {
       overlay.toast(`Tags borrowed from ${state.borrowedFrom.platform}; adjust sync in the CleanCut popup if cuts land early or late.`, { ms: 8000, color: '#f9a825' });

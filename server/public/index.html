@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CleanCut Community</title>
+  <style>
+    :root { --bg: #f6f6f8; --card: #fff; --text: #17171c; --muted: #61616b; --line: #e2e2e8; --accent: #3d63e6; --track: #ececf1; color-scheme: light; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #111115; --card: #1b1b21; --text: #ececf1; --muted: #a0a0ab; --line: #2d2d35; --accent: #7a9bff; --track: #2a2a32; color-scheme: dark; } }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    main { max-width: 980px; margin: 0 auto; padding: 24px 16px 48px; }
+    header h1 { font-size: 26px; margin: 0; }
+    header p { color: var(--muted); margin: 4px 0 16px; max-width: 70ch; }
+    input[type=search] { width: 100%; font: inherit; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--text); }
+    .cols { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 16px; margin-top: 16px; }
+    @media (max-width: 760px) { .cols { grid-template-columns: 1fr; } }
+    h2 { font-size: 15px; margin: 0 0 8px; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+    .list { display: grid; gap: 8px; }
+    .title-row { all: unset; display: block; cursor: pointer; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); }
+    .title-row:hover, .title-row[aria-expanded=true] { border-color: var(--accent); }
+    .title-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .t-name { font-weight: 600; }
+    .meta { color: var(--muted); font-size: 13px; }
+    .timeline { position: relative; height: 18px; background: var(--track); border-radius: 4px; margin: 10px 0 6px; overflow: hidden; }
+    .timeline span { position: absolute; top: 0; bottom: 0; min-width: 2px; }
+    .timeline span.machine { background-image: repeating-linear-gradient(45deg, rgba(0,0,0,.35) 0 3px, transparent 3px 6px) !important; }
+    .detail { margin-top: 8px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    td, th { text-align: left; padding: 4px 6px; border-top: 1px solid var(--line); }
+    th { color: var(--muted); font-weight: 500; }
+    .legend { display: flex; flex-wrap: wrap; gap: 10px; font-size: 12px; color: var(--muted); margin-top: 8px; }
+    .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+    .pill { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 999px; border: 1px solid var(--line); color: var(--muted); }
+    .empty { color: var(--muted); font-size: 14px; padding: 8px 0; }
+    code { background: var(--track); padding: 1px 5px; border-radius: 4px; font-size: 13px; }
+  </style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>CleanCut Community</h1>
+    <p>Timestamped content tags and published skip lists. The CleanCut browser extension uses them to play any show at the rating you pick. Tag scenes while you watch with <code>Alt+[</code> and <code>Alt+]</code>.</p>
+  </header>
+  <input type="search" id="q" placeholder="Search shows and films… e.g. Game of Thrones" aria-label="Search titles and skip lists">
+  <div class="legend" id="legend"></div>
+  <div class="cols">
+    <section>
+      <h2>Tagged titles</h2>
+      <div class="list" id="titles"><div class="empty">Loading…</div></div>
+    </section>
+    <section>
+      <h2>Popular skip lists</h2>
+      <div class="list" id="profiles"><div class="empty">Loading…</div></div>
+    </section>
+  </div>
+</main>
+<script>
+  const COLORS = { nudity: '#e0569b', sex: '#c2185b', violence: '#e53935', gore: '#8e0000', language: '#f9a825', drugs: '#7cb342', frightening: '#5e35b1' };
+  const SEV = { 1: 'mild', 2: 'moderate', 3: 'strong' };
+  const $ = (id) => document.getElementById(id);
+  const el = (tag, props = {}, ...kids) => { const e = Object.assign(document.createElement(tag), props); e.append(...kids); return e; };
+  const fmt = (s) => { s = Math.floor(s); const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), x = String(s % 60).padStart(2, '0'); return h ? `${h}:${String(m).padStart(2, '0')}:${x}` : `${m}:${x}`; };
+  const label = (t) => t.series && t.season != null ? `${t.series} · S${t.season}:E${t.episode}${t.name ? ` · ${t.name}` : ''}` : (t.name || t.titleKey);
+  const PLATFORM = { netflix: 'Netflix', prime: 'Prime Video', web: 'Web' };
+
+  for (const [cat, color] of Object.entries(COLORS)) {
+    $('legend').append(el('span', {}, el('span', { className: 'sw', style: `background:${color}` }), cat));
+  }
+  $('legend').append(el('span', {}, el('span', { className: 'sw', style: 'background:repeating-linear-gradient(45deg,#888 0 3px,transparent 3px 6px)' }), 'machine-detected'));
+
+  function timeline(segments, duration) {
+    const d = duration || Math.max(60, ...segments.map((s) => s.end));
+    const bar = el('div', { className: 'timeline', role: 'img', ariaLabel: `${segments.length} tagged segments` });
+    for (const s of segments) {
+      const mark = el('span', { title: `${fmt(s.start)}–${fmt(s.end)} ${s.category} (${SEV[s.severity]})${s.note ? ` — ${s.note}` : ''}` });
+      if (s.source !== 'community') mark.className = 'machine';
+      mark.style.cssText += `left:${(s.start / d) * 100}%;width:${((s.end - s.start) / d) * 100}%;background:${COLORS[s.category]}`;
+      bar.append(mark);
+    }
+    return bar;
+  }
+
+  async function showDetail(row, t) {
+    const open = row.getAttribute('aria-expanded') === 'true';
+    row.querySelector('.detail')?.remove();
+    row.setAttribute('aria-expanded', String(!open));
+    if (open) return;
+    const data = await (await fetch(`/v1/lookup?platform=${encodeURIComponent(t.platform)}&id=${encodeURIComponent(t.platformId)}`)).json();
+    const detail = el('div', { className: 'detail' });
+    detail.append(timeline(data.segments, t.duration));
+    const table = el('table');
+    table.append(el('tr', {}, el('th', { textContent: 'When' }), el('th', { textContent: 'What' }), el('th', { textContent: 'Source' }), el('th', { textContent: 'Score' })));
+    for (const s of data.segments) {
+      table.append(el('tr', {},
+        el('td', { textContent: `${fmt(s.start)}–${fmt(s.end)}` }),
+        el('td', {}, el('span', { className: 'sw', style: `background:${COLORS[s.category]}` }), `${s.category} (${SEV[s.severity]})${s.note ? ` — ${s.note}` : ''}`),
+        el('td', { textContent: s.source === 'community' ? (s.author || 'community') : `${s.source} ${Math.round(s.confidence * 100)}%` }),
+        el('td', { textContent: s.score })));
+    }
+    detail.append(table);
+    if (data.profiles.length) {
+      detail.append(el('p', { className: 'meta', textContent: `Skip lists: ${data.profiles.map((p) => p.name).join(', ')}` }));
+    }
+    row.append(detail);
+  }
+
+  async function load() {
+    const q = $('q').value.trim();
+    const [{ titles }, { profiles }] = await Promise.all([
+      fetch(`/v1/titles?q=${encodeURIComponent(q)}`).then((r) => r.json()),
+      fetch(`/v1/profiles?q=${encodeURIComponent(q)}`).then((r) => r.json()),
+    ]);
+    $('titles').replaceChildren(...(titles.length ? titles.map((t) => {
+      const row = el('div', { className: 'title-row', tabIndex: 0, role: 'button' });
+      row.setAttribute('aria-expanded', 'false');
+      row.append(
+        el('div', { className: 't-name', textContent: label(t) }),
+        el('div', { className: 'meta', textContent: `${PLATFORM[t.platform] || t.platform} · ${t.segmentCount} tag${t.segmentCount === 1 ? '' : 's'}${t.profileCount ? ` · ${t.profileCount} skip list${t.profileCount === 1 ? '' : 's'}` : ''}` }),
+      );
+      const toggle = (e) => { if (e.target.closest('.detail')) return; showDetail(row, t); };
+      row.addEventListener('click', toggle);
+      row.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(e); } });
+      return row;
+    }) : [el('div', { className: 'empty', textContent: q ? 'No titles match.' : 'Nothing tagged yet.' })]));
+
+    $('profiles').replaceChildren(...(profiles.length ? profiles.map((p) => el('div', { className: 'card' },
+      el('div', { className: 't-name', textContent: p.name }),
+      el('div', { className: 'meta', textContent: `${p.settings.preset === 'custom' ? 'Custom' : p.settings.preset} · by ${p.author} · ${p.subscribers} using · ${p.titleKey || p.canonicalKey ? 'one title' : 'all titles'}` }),
+      p.description ? el('p', { className: 'meta', textContent: p.description }) : '',
+    )) : [el('div', { className: 'empty', textContent: 'No skip lists published yet.' })]));
+  }
+
+  let timer;
+  $('q').addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(load, 200); });
+  load().catch((e) => ($('titles').textContent = `Could not load: ${e.message}`));
+</script>
+</body>
+</html>

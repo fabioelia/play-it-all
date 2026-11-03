@@ -267,7 +267,9 @@ async function refreshPage() {
 // ---- wiring --------------------------------------------------------------------------
 
 async function main() {
-  [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  // popup.html?tab=<id> targets a specific tab (handy for testing the popup in a normal tab).
+  const forced = Number(new URLSearchParams(location.search).get('tab'));
+  tab = forced ? await chrome.tabs.get(forced) : (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
   await loadSettings();
   $('enabled').checked = settings.enabled !== false;
   $('enabled').addEventListener('change', (e) => {
