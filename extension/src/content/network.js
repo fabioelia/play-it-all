@@ -38,15 +38,19 @@ export function createNetworkInspector(emit) {
     return true;
   }
 
+  const downloading = new Set();
   async function fetchSubtitle(tracks, forId) {
     for (const track of tracks.slice(0, 3)) {
       const url = new URL(track.url, location.href).href;
-      if (seen.has(url)) return;
+      if (seen.has(url) || downloading.has(url)) return;
+      downloading.add(url);
       try {
         const res = await fetch(url, { credentials: 'omit' });
         if (res.ok && subtitles(url, await res.text(), { forId, sdh: track.sdh, language: track.language })) return;
       } catch {
         // CDN refused or format we cannot read; try the next track.
+      } finally {
+        downloading.delete(url);
       }
     }
   }
@@ -131,7 +135,9 @@ export function createNetworkInspector(emit) {
     /** This title is playing: download its subtitle track once it is known. */
     want(id) {
       this.activate();
-      wanted = id ? String(id) : null;
+      const next = id ? String(id) : null;
+      if (next === wanted) return; // called every second; tracks that arrive later are fetched by remember()
+      wanted = next;
       const tracks = (wanted && tracksFor.get(wanted)) || tracksFor.get('');
       if (wanted && tracks) fetchSubtitle(tracks, tracksFor.has(wanted) ? wanted : null);
     },
