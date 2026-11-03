@@ -15,28 +15,60 @@ export function isLang(code, want = 'en') {
 
 // Netflix formats we can parse, best first. SDH tracks carry sound
 // descriptions, which feed the scene hints.
-const NETFLIX_FORMATS = ['dfxp-ls-sdh', 'imsc1.1', 'webvtt-lssdh-ios8', 'simplesdh', 'nflx-cmisc'];
+// (nflx-cmisc is image subtitles: nothing to read.)
+const NETFLIX_FORMATS = ['dfxp-ls-sdh', 'imsc1.1', 'webvtt-lssdh-ios8', 'simplesdh'];
 
 /**
- * Netflix player manifest (/playapi/cadmium/manifest, licensedManifest).
+ * The track list of a Netflix manifest, in either of the shapes the player
+ * accepts: v1 (`timedtexttracks`, `ttDownloadables`, `cdn_id`) or v2+
+ * (`textTracks`, `downloadables`, `cdnId`). Accepts the manifest or the PBO
+ * response wrapping it ({ result: manifest }). Null when it is not a manifest.
+ */
+export function netflixTextTracks(json) {
+  if (!isObj(json)) return null;
+  const root = isObj(json.result) ? json.result : json;
+  const list = Array.isArray(root.timedtexttracks) ? root.timedtexttracks : Array.isArray(root.textTracks) ? root.textTracks : null;
+  return list ? { movieId: root.movieId ?? root.viewableId ?? null, list } : null;
+}
+
+/**
+ * Netflix player manifest (/playapi/cadmium/manifest, licensedManifest, or
+ * the decrypted copy the player JSON.parses).
  * Returns [{ url, language, sdh, format }] best first.
  */
 export function extractNetflixTimedText(json, lang = 'en') {
-  const root = json?.result ?? json;
-  const tracks = Array.isArray(root?.timedtexttracks) ? root.timedtexttracks : [];
-  const out = [];
-  for (const track of tracks) {
+  return netflixManifestInfo(json, lang).tracks;
+}
+
+/**
+ * What a Netflix manifest says about subtitles in `lang`:
+ * { movieId, tracks: [{ url, language, sdh, format }] best first,
+ *   available: tracks in that language, dehydrated: of those, how many came
+ *   without download links (Netflix sends links only for the selected track;
+ *   the rest arrive when the viewer picks one) }.
+ */
+export function netflixManifestInfo(json, lang = 'en') {
+  const found = netflixTextTracks(json);
+  const out = { movieId: found?.movieId != null ? String(found.movieId) : null, tracks: [], available: 0, dehydrated: 0 };
+  for (const track of found?.list || []) {
     if (!isObj(track) || track.isNoneTrack || track.isForcedNarrative) continue;
     if (!isLang(track.language, lang)) continue;
+    out.available++;
     const sdh = /closed|sdh|cc/i.test(`${track.trackType} ${track.rawTrackType} ${track.languageDescription}`);
-    const downloadables = track.ttDownloadables || {};
+    const downloadables = track.ttDownloadables || track.downloadables || {};
+    let links = 0;
     for (const format of NETFLIX_FORMATS) {
       const d = downloadables[format];
       if (!d) continue;
-      for (const url of downloadableUrls(d)) out.push({ url, language: track.language, sdh, format });
+      for (const url of downloadableUrls(d)) {
+        out.tracks.push({ url, language: track.language, sdh, format });
+        links++;
+      }
     }
+    if (!links) out.dehydrated++;
   }
-  return out.sort((a, b) => Number(b.sdh) - Number(a.sdh) || NETFLIX_FORMATS.indexOf(a.format) - NETFLIX_FORMATS.indexOf(b.format));
+  out.tracks.sort((a, b) => Number(b.sdh) - Number(a.sdh) || NETFLIX_FORMATS.indexOf(a.format) - NETFLIX_FORMATS.indexOf(b.format));
+  return out;
 }
 
 function downloadableUrls(d) {

@@ -10,10 +10,11 @@
 
 import {
   extractNetflixMetadata,
-  extractNetflixTimedText,
   extractPrimeSubtitles,
   extractPrimeTitle,
   looksLikeSubtitle,
+  netflixManifestInfo,
+  netflixTextTracks,
 } from '../../../shared/sources.js';
 
 const MAX_QUEUED = 8; // unparsed bodies kept while nothing plays
@@ -21,15 +22,21 @@ const MAX_TITLES = 32; // track lists remembered (URLs only), oldest dropped
 
 /**
  * @param {(type: string, payload: object) => void} emit
- *   receives 'netflix-metadata', 'prime-title' and 'subtitles' messages
+ *   receives 'netflix-metadata', 'prime-title', 'subtitles' and
+ *   'needs-subtitles' (the playing title's English track came without links)
+ * @param {{ pageFetch?: (url: string) => Promise<{ok:boolean,status:number,text?:string,error?:string}> }} [o]
+ *   pageFetch: download through the page itself, if the content script is refused
  */
-export function createNetworkInspector(emit) {
+export function createNetworkInspector(emit, { pageFetch } = {}) {
   const isNetflix = /(^|\.)netflix\.com$/.test(location.hostname);
   const seen = new Set(); // subtitle URLs already handed over
   const queued = []; // forwarded bodies not parsed yet
   const tracksFor = new Map(); // title id ('' = unknown) → subtitle tracks, best first
+  const infoFor = new Map(); // title id → { available, dehydrated, via } from its last manifest
   let active = false; // a title is in the player: parse as responses arrive
   let wanted = null; // platform id of the title playing
+  // What happened, for the popup's diagnostics line.
+  const diag = { manifests: 0, decrypted: 0, download: null };
 
   function subtitles(url, text, extra) {
     if (seen.has(url) || !looksLikeSubtitle(text)) return false;
@@ -44,11 +51,29 @@ export function createNetworkInspector(emit) {
       const url = new URL(track.url, location.href).href;
       if (seen.has(url) || downloading.has(url)) return;
       downloading.add(url);
+      const extra = { forId, sdh: track.sdh, language: track.language };
       try {
-        const res = await fetch(url, { credentials: 'omit' });
-        if (res.ok && subtitles(url, await res.text(), { forId, sdh: track.sdh, language: track.language })) return;
-      } catch {
-        // CDN refused or format we cannot read; try the next track.
+        let text = null;
+        try {
+          const res = await fetch(url, { credentials: 'omit' });
+          if (res.ok) text = await res.text();
+          else diag.download = `refused (HTTP ${res.status})`;
+        } catch (e) {
+          diag.download = `blocked (${e?.message || e})`;
+        }
+        if (text == null && pageFetch) {
+          // Same request from the page, as the player makes it.
+          const r = await pageFetch(url);
+          if (r?.ok) text = r.text;
+          else diag.download = `refused (${r?.status ? `HTTP ${r.status}` : r?.error || 'no answer'}), also from the page`;
+        }
+        if (text != null) {
+          if (subtitles(url, text, extra)) {
+            diag.download = `ok (${track.format || 'subtitles'}, ${Math.round(text.length / 1024)} KB)`;
+            return;
+          }
+          diag.download = `not a subtitle file (${track.format || 'unknown format'})`;
+        }
       } finally {
         downloading.delete(url);
       }
@@ -65,12 +90,22 @@ export function createNetworkInspector(emit) {
     if (wanted && (key === wanted || key === '')) fetchSubtitle(tracks, forId || null);
   }
 
+  /** A Netflix manifest's subtitle summary (from the network or the decrypted copy). */
+  function manifest({ movieId, tracks, available, dehydrated }, via) {
+    diag.manifests++;
+    if (via === 'decrypted') diag.decrypted++;
+    const key = movieId || '';
+    infoFor.set(key, { available, dehydrated, via });
+    if (infoFor.size > MAX_TITLES) infoFor.delete(infoFor.keys().next().value);
+    if (tracks?.length) remember(key, tracks);
+    else if (dehydrated && wanted && key === wanted && !tracksFor.has(key)) emit('needs-subtitles', { forId: key });
+  }
+
   function inspectJson(url, json) {
     if (isNetflix) {
       const meta = extractNetflixMetadata(json);
       if (Object.keys(meta).length) emit('netflix-metadata', meta);
-      const tracks = extractNetflixTimedText(json);
-      if (tracks.length) remember(String(json?.result?.movieId ?? json?.movieId ?? ''), tracks);
+      if (netflixTextTracks(json)) manifest(netflixManifestInfo(json), 'network');
     } else {
       const title = extractPrimeTitle(json);
       if (title) emit('prime-title', title);
@@ -121,9 +156,20 @@ export function createNetworkInspector(emit) {
       if (queued.length > MAX_QUEUED) parse(queued.shift());
       schedule();
     },
-    /** Subtitle tracks the page hook read from a decrypted Netflix manifest (already small). */
-    tracks(forId, list) {
-      if (Array.isArray(list) && list.length) remember(forId ? String(forId) : '', list);
+    /** Subtitle summary the page hook read from a decrypted Netflix manifest (already small). */
+    tracks(info) {
+      if (info && typeof info === 'object') manifest({ ...info, tracks: Array.isArray(info.tracks) ? info.tracks : [] }, info.via || 'decrypted');
+    },
+    /** For the popup: what is known about the playing title's subtitles. */
+    diagnostics() {
+      const info = (wanted && infoFor.get(wanted)) || null;
+      return {
+        ...diag,
+        tracks: (wanted && tracksFor.get(wanted)?.length) || 0,
+        available: info?.available ?? null,
+        dehydrated: info?.dehydrated ?? null,
+        via: info?.via || null,
+      };
     },
     /** A player is on the page: parse what was queued, and from now on as it arrives. */
     activate() {
@@ -142,8 +188,10 @@ export function createNetworkInspector(emit) {
       const next = id ? String(id) : null;
       if (next === wanted) return; // called every second; tracks that arrive later are fetched by remember()
       wanted = next;
+      diag.download = null;
       const tracks = (wanted && tracksFor.get(wanted)) || tracksFor.get('');
       if (wanted && tracks) fetchSubtitle(tracks, tracksFor.has(wanted) ? wanted : null);
+      else if (wanted && infoFor.get(wanted)?.dehydrated) emit('needs-subtitles', { forId: wanted });
     },
   };
 }

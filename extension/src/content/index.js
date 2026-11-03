@@ -340,14 +340,42 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
 
   // Responses the page hook forwarded are parsed here, and only once a title
   // is in the player (see network.js), not in the hook at document_start.
+  const pendingFetches = new Map();
+  let fetchSeq = 0;
+  /** Download through the page hook (the page's own origin and network stack). */
+  function pageFetch(url) {
+    if (!hookPort) return Promise.resolve({ ok: false, status: 0, error: 'no page hook' });
+    const reqId = ++fetchSeq;
+    hookPort.postMessage({ type: 'fetch', url, reqId });
+    return new Promise((resolve) => {
+      pendingFetches.set(reqId, resolve);
+      setTimeout(() => {
+        if (pendingFetches.delete(reqId)) resolve({ ok: false, status: 0, error: 'timed out' });
+      }, 20_000);
+    });
+  }
+
+  const askedForSubtitles = new Set();
   const inspector = createNetworkInspector((type, payload) => {
     if (type === 'subtitles') handleSubtitles(payload);
-    else adapter.onPageMessage(type, payload);
-  });
+    else if (type === 'needs-subtitles') {
+      // Netflix sends links only for the subtitle track that is selected.
+      if (askedForSubtitles.has(payload.forId) || state.subtitleInfo) return;
+      askedForSubtitles.add(payload.forId);
+      overlay.toast('To scan ahead, turn on English subtitles [CC] once for this episode. You can turn them off again right after.', { ms: 9000, color: '#f9a825' });
+    } else adapter.onPageMessage(type, payload);
+  }, { pageFetch });
 
   function onHookMessage({ type, payload } = {}) {
     if (type === 'response' && payload) inspector.handle(payload);
-    else if (type === 'tracks' && payload) inspector.tracks(payload.forId, payload.tracks);
+    else if (type === 'tracks' && payload) inspector.tracks(payload);
+    else if (type === 'fetch-result') {
+      const resolve = pendingFetches.get(payload?.reqId);
+      if (resolve) {
+        pendingFetches.delete(payload.reqId);
+        resolve(payload);
+      }
+    }
     else if (type === 'seek-result') {
       const resolve = pendingSeeks.get(payload?.reqId);
       if (resolve) {
@@ -583,6 +611,7 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
         subtitles: count((s) => s === 'subtitles'),
       },
       subtitle: state.subtitleInfo ? { cues: state.subtitleInfo.count, sdh: state.subtitleInfo.sdh } : null,
+      diag: { hook: !!hookPort, ...inspector.diagnostics() },
       actions: plan?.actions || [],
       flagged: plan?.flagged || [],
       skipped: plan ? skippedSeconds(plan.actions, v?.duration) : 0,

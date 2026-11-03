@@ -21,7 +21,7 @@
 // (a 'cleancut:connect' DOM event); findings go only through that port, and
 // the few found before it connects are kept (bounded) and handed over then.
 
-import { MAX_INSPECT_BYTES, classifyResponse, extractNetflixTimedText, mayMatter } from '../../shared/sources.js';
+import { MAX_INSPECT_BYTES, classifyResponse, mayMatter, netflixManifestInfo } from '../../shared/sources.js';
 
 (() => {
   if (window.__cleancutHooked) return;
@@ -45,21 +45,22 @@ import { MAX_INSPECT_BYTES, classifyResponse, extractNetflixTimedText, mayMatter
   const forward = (url, kind, body) => send({ type: 'response', payload: { url, kind, body } });
 
   // ---- Netflix: subtitle tracks from the decrypted manifest -----------------
-  // The manifest arrives encrypted, so reading it off the network finds
-  // nothing. The player decrypts it and parses it with JSON.parse; the wrapper
-  // looks at the shape of each result (a couple of property reads) and, for a
-  // manifest, passes on just its English subtitle URLs (a few hundred bytes).
-  // The value returned to the player is the very same object.
+  // The player fetches manifests over MSL (encrypted, often over a WebSocket),
+  // so they are unreadable on the network. It decrypts them and parses the
+  // text with JSON.parse; the wrapper looks at the shape of each result (a few
+  // property reads) and, for a manifest (v1 `timedtexttracks` or v2+
+  // `textTracks`), passes on just its English subtitle URLs. The value
+  // returned to the player is the very same object.
   if (/(^|\.)netflix\.com$/.test(HOST)) {
     const origParse = JSON.parse;
     JSON.parse = function parse(text, reviver) {
       const value = origParse.apply(JSON, arguments);
       try {
         if (value !== null && typeof value === 'object') {
-          const m = value.result && typeof value.result === 'object' ? value.result : value;
-          if (Array.isArray(m.timedtexttracks) && m.movieId != null) {
-            const tracks = extractNetflixTimedText(m);
-            if (tracks.length) send({ type: 'tracks', payload: { forId: String(m.movieId), tracks } });
+          const m = value.result !== null && typeof value.result === 'object' ? value.result : value;
+          if (m.movieId != null && (Array.isArray(m.timedtexttracks) || Array.isArray(m.textTracks))) {
+            const info = netflixManifestInfo(m);
+            send({ type: 'tracks', payload: { ...info, via: 'decrypted' } });
           }
         }
       } catch { /* never break the page */ }
@@ -137,8 +138,18 @@ import { MAX_INSPECT_BYTES, classifyResponse, extractNetflixTimedText, mayMatter
     }
   }
 
+  // Fallback download from the page itself: same origin and network stack as
+  // the player's own subtitle requests, for a CDN that refuses the content script.
+  function pageFetch(url, reqId) {
+    origFetch.call(window, url)
+      .then(async (res) => ({ ok: res.ok, status: res.status, text: res.ok ? await res.text() : '' }))
+      .catch((e) => ({ ok: false, status: 0, error: String(e?.message || e) }))
+      .then((r) => port?.postMessage({ type: 'fetch-result', payload: { reqId, ...r } }));
+  }
+
   function onContentMessage(e) {
-    const { type, seconds, reqId } = e.data || {};
+    const { type, seconds, reqId, url } = e.data || {};
+    if (type === 'fetch' && typeof url === 'string') return pageFetch(url, reqId);
     if (type !== 'seek') return;
     const p = netflixPlayer();
     let ok = false;

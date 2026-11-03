@@ -158,6 +158,9 @@ function renderPage() {
   if (!page.subtitle && page.platform !== 'web') warn.push('Tip: turn on English [CC] subtitles once so CleanCut can scan ahead.');
   $('now-warning').hidden = !warn.length;
   $('now-warning').textContent = warn.join(' ');
+  const diag = diagnosticsLine(page);
+  $('now-diag').hidden = !diag;
+  $('now-diag').textContent = diag;
   $('offset').textContent = `${page.offset >= 0 ? '+' : ''}${page.offset.toFixed(1)}s`;
   $('list-note').textContent = page.activeList ? `using “${page.activeList.name}”` : '';
 
@@ -166,6 +169,20 @@ function renderPage() {
   $('mark-state').textContent = page.markStart != null ? `Start marked at ${formatTime(page.markStart)}` : '';
   $('share').hidden = !page.unshared;
   $('share').textContent = `Share ${page.unshared} tag${page.unshared === 1 ? '' : 's'} on GitHub`;
+}
+
+/** One line saying how far subtitle scan-ahead got, so a report can say where it stopped. */
+function diagnosticsLine(p) {
+  const d = p.diag;
+  if (!d || p.platform === 'web') return '';
+  const parts = [`Page link ${d.hook ? 'ok' : 'missing'}`];
+  if (p.platform === 'netflix') parts.push(`subtitle lists seen ${d.manifests}${d.decrypted ? ` (${d.decrypted} decrypted)` : ''}`);
+  if (d.available != null) {
+    parts.push(d.available ? `English tracks ${d.available}${d.dehydrated ? `, ${d.dehydrated} without links` : ''}` : 'no English subtitles listed');
+  } else if (p.platform === 'netflix') parts.push('this episode not in any list yet');
+  parts.push(`download ${d.download || (d.tracks ? 'pending' : 'not started')}`);
+  if (p.subtitle) parts.push(`scanned ${p.subtitle.cues} lines`);
+  return `Scan-ahead check: ${parts.join(' · ')}`;
 }
 
 function renderUpcoming() {

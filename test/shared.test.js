@@ -187,6 +187,35 @@ test('Netflix manifest + metadata extraction', () => {
   assert.deepEqual(extractNetflixTimedText({ nope: 1 }), []);
 });
 
+test('Netflix v2+ manifests: textTracks, downloadables, tracks sent without links', async () => {
+  const { netflixManifestInfo } = await import('../shared/sources.js');
+  // The shape the current player requests (manifestVersion v2-v4), as a PBO response.
+  const pbo = {
+    version: 2,
+    result: {
+      movieId: 81234567,
+      manifestVersion: 'v4',
+      textTracks: [
+        { id: 'A', language: 'en', trackType: 'CLOSEDCAPTIONS', rawTrackType: 'closedcaptions', hydrated: true,
+          downloadables: { 'imsc1.1': { urls: [{ cdnId: 3, url: 'https://cdn/en-cc' }] }, 'nflx-cmisc': { urls: [{ cdnId: 3, url: 'https://cdn/img' }] } } },
+        { id: 'B', language: 'en', trackType: 'PRIMARY', rawTrackType: 'subtitles', hydrated: false, downloadables: {} },
+        { id: 'C', language: 'de', trackType: 'PRIMARY', hydrated: true, downloadables: { 'imsc1.1': { urls: [{ url: 'https://cdn/de' }] } } },
+        { id: 'none', isNoneTrack: true },
+      ],
+    },
+  };
+  const info = netflixManifestInfo(pbo);
+  assert.equal(info.movieId, '81234567');
+  assert.deepEqual(info.tracks.map((t) => [t.url, t.format, t.sdh]), [['https://cdn/en-cc', 'imsc1.1', true]]);
+  assert.equal(info.available, 2);
+  assert.equal(info.dehydrated, 1);
+  assert.deepEqual(extractNetflixTimedText(pbo.result).map((t) => t.url), ['https://cdn/en-cc']);
+  // English listed but sent without links (subtitles off): nothing to fetch yet, and we can say why.
+  const off = netflixManifestInfo({ result: { movieId: 1, textTracks: [{ language: 'en', hydrated: false, downloadables: {} }] } });
+  assert.deepEqual([off.tracks.length, off.available, off.dehydrated], [0, 1, 1]);
+  assert.equal(netflixManifestInfo({ result: { ok: true } }).movieId, null);
+});
+
 test('Prime playback resources extraction', () => {
   const json = {
     timedTextUrls: { result: { subtitleUrls: [

@@ -40,7 +40,12 @@ const dfxp = `<?xml version="1.0" encoding="utf-8"?><tt xmlns="http://www.w3.org
   Array.from({ length: 600 }, (_, i) => `<p begin="${i * 50000000}t" end="${i * 50000000 + 30000000}t">${i % 50 === 7 ? 'What the fuck is that?' : i % 80 === 11 ? '[woman moaning]' : `Line number ${i} of the dialogue.`}</p>`).join('')
 }</div></body></tt>`;
 const metadata = JSON.stringify({ video: { type: 'show', title: 'Simulated Show', seasons: [{ seq: 1, episodes: [{ id: Number(VIDEO_ID), seq: 1, title: 'Pilot', runtime: 3000 }] }] } });
-const manifest = JSON.stringify({ result: { movieId: Number(VIDEO_ID), timedtexttracks: [{ language: 'en', trackType: 'CLOSEDCAPTIONS', ttDownloadables: { 'dfxp-ls-sdh': { urls: [{ url: `https://www.netflix.com/nflx/sub?o=1&v=${VIDEO_ID}` }] } } }] } });
+// The current (v2+) manifest shape: textTracks / downloadables / cdnId.
+const manifest = JSON.stringify({ version: 2, result: { movieId: Number(VIDEO_ID), manifestVersion: 'v4', textTracks: [
+  { id: 'T1', language: 'en', trackType: 'CLOSEDCAPTIONS', rawTrackType: 'closedcaptions', hydrated: true, downloadableIds: { 'imsc1.1': 'D1' },
+    downloadables: { 'imsc1.1': { size: 90000, urls: [{ cdnId: 1, url: `https://www.netflix.com/nflx/sub?o=1&v=${VIDEO_ID}` }] } } },
+  { id: 'T2', language: 'fr', trackType: 'SUBTITLES', rawTrackType: 'subtitles', hydrated: false, downloadableIds: {}, downloadables: {} },
+] } });
 
 // What the network actually carries: an MSL envelope, unreadable without the player's keys.
 const mslManifest = JSON.stringify({ headerdata: Buffer.alloc(600, 1).toString('base64'), signature: 'c2ln' }) + JSON.stringify({ payload: Buffer.from(manifest).toString('base64').split('').reverse().join(''), signature: 'c2ln' });
