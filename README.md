@@ -267,10 +267,12 @@ The end-to-end test plays the demo episode and checks:
   accounts. The adapters follow the players' current DOM and JSON shapes,
   which change without notice. Every extractor is defensive, and the code
   marks each place that depends on site internals. Expect to maintain
-  selectors. Netflix's player defaults to its encrypted MSL transport for
-  playback requests (`/msl/playapi/…`); if a manifest arrives encrypted,
-  CleanCut cannot read the subtitle list from it and Netflix scan-ahead finds
-  nothing (catalog tags and your own tags still work).
+  selectors. Netflix's player fetches its manifests over its encrypted MSL
+  transport (`/msl/playapi/…`), so the subtitle list is not readable on the
+  network. CleanCut reads it when the player itself `JSON.parse`s the decrypted
+  manifest (a shape check on each parsed value, in the page hook). If Netflix
+  changes that, scan-ahead on Netflix finds nothing; catalog tags and your own
+  tags still work.
 - **Netflix seeking** goes through the player's own API, because setting
   `video.currentTime` crashes the Netflix player (error M7375). If Netflix
   changes that API, CleanCut notices the failed seek, says so once, and covers

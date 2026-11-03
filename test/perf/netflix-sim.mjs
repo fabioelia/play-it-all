@@ -42,6 +42,9 @@ const dfxp = `<?xml version="1.0" encoding="utf-8"?><tt xmlns="http://www.w3.org
 const metadata = JSON.stringify({ video: { type: 'show', title: 'Simulated Show', seasons: [{ seq: 1, episodes: [{ id: Number(VIDEO_ID), seq: 1, title: 'Pilot', runtime: 3000 }] }] } });
 const manifest = JSON.stringify({ result: { movieId: Number(VIDEO_ID), timedtexttracks: [{ language: 'en', trackType: 'CLOSEDCAPTIONS', ttDownloadables: { 'dfxp-ls-sdh': { urls: [{ url: `https://www.netflix.com/nflx/sub?o=1&v=${VIDEO_ID}` }] } } }] } });
 
+// What the network actually carries: an MSL envelope, unreadable without the player's keys.
+const mslManifest = JSON.stringify({ headerdata: Buffer.alloc(600, 1).toString('base64'), signature: 'c2ln' }) + JSON.stringify({ payload: Buffer.from(manifest).toString('base64').split('').reverse().join(''), signature: 'c2ln' });
+
 const page = `<!doctype html><html><head><title>Netflix</title></head><body style="margin:0;background:#000">
 <div class="watch-video"><div data-uia="video-title"><h4>Simulated Show</h4><span>S1:E1</span><span>Pilot</span></div>
 <video id="v" src="/nflx/video.webm" muted loop autoplay style="width:100vw;height:56vw"></video></div>
@@ -50,7 +53,9 @@ const page = `<!doctype html><html><head><title>Netflix</title></head><body styl
   new PerformanceObserver((l) => { for (const e of l.getEntries()) { stats.longTasks++; stats.longTaskMs += e.duration; } }).observe({ type: 'longtask', buffered: true });
   // What the player itself needs at start.
   fetch('/nflx/metadata?movieid=${VIDEO_ID}').then((r) => r.json());
-  fetch('/playapi/cadmium/licensedmanifest/1', { method: 'POST', body: '{}' }).then((r) => r.json());
+  // Like the real player: the manifest arrives MSL-encrypted and is only
+  // JSON.parse'd after the player decrypts it.
+  fetch('/playapi/cadmium/licensedmanifest/1', { method: 'POST', body: '{}' }).then((r) => r.text()).then(() => JSON.parse(${JSON.stringify(manifest)}));
   // Ongoing traffic. The page parses its own JSON, as the real one does.
   setInterval(() => { stats.requests++; fetch('/nq/graphql?q=' + Math.random()).then((r) => r.json()); }, 250);
   setInterval(() => {
@@ -76,7 +81,7 @@ const server = createServer({ key: readFileSync(join(tmp, 'key.pem')), cert: rea
     return res.end(video.subarray(s, e + 1));
   }
   if (u.pathname === '/nflx/metadata') return send('application/json', metadata);
-  if (u.pathname.includes('licensedmanifest')) return send('application/json', manifest);
+  if (u.pathname.includes('licensedmanifest')) return send('application/json', mslManifest);
   if (u.pathname === '/nflx/sub') return send('text/xml', dfxp);
   if (u.pathname === '/nq/graphql') return send('application/json', bigJson);
   // Netflix's CDN serves segments with a generic or missing media type.

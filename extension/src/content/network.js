@@ -121,6 +121,10 @@ export function createNetworkInspector(emit) {
       if (queued.length > MAX_QUEUED) parse(queued.shift());
       schedule();
     },
+    /** Subtitle tracks the page hook read from a decrypted Netflix manifest (already small). */
+    tracks(forId, list) {
+      if (Array.isArray(list) && list.length) remember(forId ? String(forId) : '', list);
+    },
     /** A player is on the page: parse what was queued, and from now on as it arrives. */
     activate() {
       if (active) return;

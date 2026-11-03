@@ -347,6 +347,7 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
 
   function onHookMessage({ type, payload } = {}) {
     if (type === 'response' && payload) inspector.handle(payload);
+    else if (type === 'tracks' && payload) inspector.tracks(payload.forId, payload.tracks);
     else if (type === 'seek-result') {
       const resolve = pendingSeeks.get(payload?.reqId);
       if (resolve) {

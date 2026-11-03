@@ -8,7 +8,10 @@
 //     files). Requests whose URL cannot matter are passed straight through:
 //     no listener, no clone, nothing stored on the request object (that
 //     includes every media segment and every API call but those few).
-//  2. The Netflix seek bridge: assigning video.currentTime directly crashes
+//  2. On Netflix, the subtitle track list. Netflix encrypts its manifest
+//     responses (MSL), so it is only readable once the player has decrypted
+//     and JSON.parse'd it; see the JSON.parse wrapper below.
+//  3. The Netflix seek bridge: assigning video.currentTime directly crashes
 //     the Netflix player (error M7375), so seeks go through its own API.
 //
 // Talking to the content script: nothing is broadcast with window.postMessage.
@@ -18,7 +21,7 @@
 // (a 'cleancut:connect' DOM event); findings go only through that port, and
 // the few found before it connects are kept (bounded) and handed over then.
 
-import { MAX_INSPECT_BYTES, classifyResponse, mayMatter } from '../../shared/sources.js';
+import { MAX_INSPECT_BYTES, classifyResponse, extractNetflixTimedText, mayMatter } from '../../shared/sources.js';
 
 (() => {
   if (window.__cleancutHooked) return;
@@ -29,13 +32,40 @@ import { MAX_INSPECT_BYTES, classifyResponse, mayMatter } from '../../shared/sou
 
   let port = null;
   const backlog = []; // findings made before the content script connected
-  const MAX_BACKLOG = 8;
-  const forward = (url, kind, body) => {
-    const msg = { type: 'response', payload: { url, kind, body } };
+  const MAX_BACKLOG = 12;
+  const send = (msg) => {
     if (port) return port.postMessage(msg);
     backlog.push(msg);
-    if (backlog.length > MAX_BACKLOG) backlog.shift();
+    if (backlog.length > MAX_BACKLOG) {
+      // Drop the oldest response body first; track lists are tiny and rare.
+      const i = backlog.findIndex((m) => m.type === 'response');
+      backlog.splice(i < 0 ? 0 : i, 1);
+    }
   };
+  const forward = (url, kind, body) => send({ type: 'response', payload: { url, kind, body } });
+
+  // ---- Netflix: subtitle tracks from the decrypted manifest -----------------
+  // The manifest arrives encrypted, so reading it off the network finds
+  // nothing. The player decrypts it and parses it with JSON.parse; the wrapper
+  // looks at the shape of each result (a couple of property reads) and, for a
+  // manifest, passes on just its English subtitle URLs (a few hundred bytes).
+  // The value returned to the player is the very same object.
+  if (/(^|\.)netflix\.com$/.test(HOST)) {
+    const origParse = JSON.parse;
+    JSON.parse = function parse(text, reviver) {
+      const value = origParse.apply(JSON, arguments);
+      try {
+        if (value !== null && typeof value === 'object') {
+          const m = value.result && typeof value.result === 'object' ? value.result : value;
+          if (Array.isArray(m.timedtexttracks) && m.movieId != null) {
+            const tracks = extractNetflixTimedText(m);
+            if (tracks.length) send({ type: 'tracks', payload: { forId: String(m.movieId), tracks } });
+          }
+        }
+      } catch { /* never break the page */ }
+      return value;
+    };
+  }
 
   window.fetch = function fetch(input, init) {
     const pending = origFetch.call(window, input, init);
