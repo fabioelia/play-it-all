@@ -22,6 +22,7 @@
     "test:e2e": "npm run build && node --disable-warning=ExperimentalWarning test/e2e/extension.e2e.mjs",
     "bench": "npm run build && node --disable-warning=ExperimentalWarning test/perf/netflix-sim.mjs",
     "bench:playback": "npm run build && node --disable-warning=ExperimentalWarning test/perf/playback-sim.mjs",
+    "bench:real": "npm run build && node --disable-warning=ExperimentalWarning test/perf/netflix-real.mjs",
     "setup:browser": "playwright install chromium",
     "trace": "node test/perf/analyze-trace.mjs"
   },
