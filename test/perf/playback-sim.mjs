@@ -16,7 +16,6 @@
 //
 //   node test/perf/playback-sim.mjs [extDir ...]        (default: extension/dist/chrome)
 //   SECONDS=20 BROKEN_API=1 node test/perf/playback-sim.mjs   (simulate Netflix's seek API missing)
-import { createRequire } from 'node:module';
 import { createServer } from 'node:https';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -24,8 +23,9 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const require = createRequire(import.meta.url);
-const { chromium } = require('playwright');
+import { explainLaunchError, loadChromium, requireFfmpeg } from '../support/browser.mjs';
+
+const chromium = loadChromium();
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const tmp = mkdtempSync(join(tmpdir(), 'cleancut-play-'));
 const SECONDS = Number(process.env.SECONDS || 20);
@@ -37,6 +37,7 @@ const VIDEO_ID = '80000002';
 const cacheDir = join(root, 'node_modules/.cache/cleancut-bench');
 const videoFile = join(cacheDir, 'playback-1080p.webm');
 if (!existsSync(videoFile)) {
+  requireFfmpeg('generate the 1080p benchmark video');
   mkdirSync(cacheDir, { recursive: true });
   console.log('generating 1080p test video (once)…');
   execFileSync('ffmpeg', ['-v', 'error', '-f', 'lavfi', '-i', 'testsrc2=size=1920x1080:rate=30:duration=30',
@@ -128,7 +129,7 @@ async function run(label, ext) {
   const args = ['--no-proxy-server', `--host-resolver-rules=MAP www.netflix.com 127.0.0.1:${PORT}`, '--ignore-certificate-errors', '--autoplay-policy=no-user-gesture-required'];
   if (ext) args.push(`--disable-extensions-except=${ext}`, `--load-extension=${ext}`);
   else args.push('--disable-extensions');
-  const ctx = await chromium.launchPersistentContext(join(tmp, `p-${label.replace(/\W/g, '_')}`), { channel: 'chromium', headless: true, viewport: { width: 1280, height: 720 }, ignoreHTTPSErrors: true, args });
+  const ctx = await chromium.launchPersistentContext(join(tmp, `p-${label.replace(/\W/g, '_')}`), { channel: 'chromium', headless: true, viewport: { width: 1280, height: 720 }, ignoreHTTPSErrors: true, args }).catch(explainLaunchError);
   const p = await ctx.newPage();
   // The extension opens its options page on first install; a background tab
   // gets throttled rendering and timers, so keep ours the only, foreground tab.

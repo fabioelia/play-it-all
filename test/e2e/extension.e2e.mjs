@@ -3,16 +3,16 @@
 // muted and blurred.
 //
 //   npm run test:e2e
-import { createRequire } from 'node:module';
-import { spawn, execFileSync } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 
-const require = createRequire(import.meta.url);
-const { chromium } = require('playwright');
+import { ensureDemoVideo, explainLaunchError, loadChromium } from '../support/browser.mjs';
+
+const chromium = loadChromium();
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const ext = join(root, 'extension/dist/chrome');
@@ -20,7 +20,7 @@ const PORT = 8787; // the extension's default API
 const BASE = `http://localhost:${PORT}`;
 const tmp = mkdtempSync(join(tmpdir(), 'cleancut-e2e-'));
 
-if (!existsSync(join(root, 'server/public/demo.webm'))) execFileSync('sh', [join(root, 'scripts/make-demo-video.sh')], { stdio: 'inherit' });
+ensureDemoVideo();
 
 const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', join(root, 'server/src/index.js')], {
   env: { ...process.env, PORT: String(PORT), HOST: '127.0.0.1', CLEANCUT_DB: join(tmp, 'e2e.db') },
@@ -79,7 +79,7 @@ try {
     channel: 'chromium',
     headless: true,
     args: [`--disable-extensions-except=${ext}`, `--load-extension=${ext}`, '--autoplay-policy=no-user-gesture-required'],
-  });
+  }).catch(explainLaunchError);
   const worker = context.serviceWorkers()[0] || (await context.waitForEvent('serviceworker'));
   const extensionId = new URL(worker.url()).host;
   const setSettings = (patch) => worker.evaluate(async (p) => {

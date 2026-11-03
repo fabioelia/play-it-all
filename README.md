@@ -204,8 +204,19 @@ Configuration is through environment variables: `PORT` (8787), `HOST`
 
 ## Tests
 
+The browser tests and benchmarks drive Chromium with Playwright, a dev
+dependency. Download its browser once:
+
 ```bash
-npm test            # 26 unit + API + scanner tests (node:test)
+npm install
+npm run setup:browser   # downloads the Chromium build Playwright drives
+```
+
+They also need `ffmpeg` to generate their test videos (`brew install ffmpeg`
+on macOS).
+
+```bash
+npm test            # 27 unit + API + scanner tests (node:test)
 npm run test:e2e    # loads the built extension in headless Chromium against the demo
 ```
 

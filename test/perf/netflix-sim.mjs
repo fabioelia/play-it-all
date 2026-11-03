@@ -10,7 +10,6 @@
 //
 //   node test/perf/netflix-sim.mjs [extDir ...]     (default: extension/dist/chrome)
 //   SECONDS=15 node test/perf/netflix-sim.mjs
-import { createRequire } from 'node:module';
 import { createServer } from 'node:https';
 import { execFileSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -18,8 +17,9 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const require = createRequire(import.meta.url);
-const { chromium } = require('playwright');
+import { ensureDemoVideo, explainLaunchError, loadChromium } from '../support/browser.mjs';
+
+const chromium = loadChromium();
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const tmp = mkdtempSync(join(tmpdir(), 'cleancut-perf-'));
 const SECONDS = Number(process.env.SECONDS || 15);
@@ -30,7 +30,7 @@ execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days
   '-keyout', join(tmp, 'key.pem'), '-out', join(tmp, 'cert.pem')], { stdio: 'ignore' });
 
 // ---- fake Netflix ------------------------------------------------------------
-const video = readFileSync(join(root, 'server/public/demo.webm'));
+const video = readFileSync(ensureDemoVideo());
 const bigJson = JSON.stringify({ jsonGraph: { videos: Object.fromEntries(Array.from({ length: 1500 }, (_, i) => [80000000 + i, {
   title: { value: `Title ${i}` }, synopsis: { value: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. '.repeat(2) },
   boxart: { value: { url: `https://example.invalid/${i}.jpg`, w: 342, h: 192 } }, userRating: { value: { matchScore: 97 } },
@@ -90,7 +90,7 @@ async function run(label, ext) {
   const args = ['--no-proxy-server', '--host-resolver-rules=MAP www.netflix.com 127.0.0.1:' + PORT, '--ignore-certificate-errors', '--autoplay-policy=no-user-gesture-required'];
   if (ext) args.push(`--disable-extensions-except=${ext}`, `--load-extension=${ext}`);
   else args.push('--disable-extensions');
-  const ctx = await chromium.launchPersistentContext(join(tmp, `p-${label}`), { channel: 'chromium', headless: true, viewport: { width: 1280, height: 720 }, ignoreHTTPSErrors: true, args });
+  const ctx = await chromium.launchPersistentContext(join(tmp, `p-${label.replace(/\W/g, '_')}`), { channel: 'chromium', headless: true, viewport: { width: 1280, height: 720 }, ignoreHTTPSErrors: true, args }).catch(explainLaunchError);
   const p = await ctx.newPage();
   // The extension opens its options page on first install; a background tab
   // gets throttled rendering and timers, so keep ours the only, foreground tab.
