@@ -119,3 +119,40 @@ export function looksLikeSubtitle(head) {
   const s = String(head).replace(/^﻿/, '').trimStart().slice(0, 300);
   return s.startsWith('WEBVTT') || (/^<\?xml|^<tt[\s>]/.test(s) && /<tt[\s:>]/.test(s));
 }
+
+// ---- which network responses are worth reading ---------------------------------
+//
+// The page hook sees every request the player makes: media segments, API
+// calls, logging. Reading or parsing those would double the page's own work,
+// so this decides from the URL (plus cheap header facts) alone. Called on every
+// request: keep it to a few regex tests.
+
+export const MAX_INSPECT_BYTES = 4 * 1024 * 1024;
+const SUBTITLE_PATH = /\.(vtt|dfxp|ttml2?|srt|xml)(\?|$)/i;
+const SUBTITLE_TYPE = /\b(xml|vtt|ttml)\b/i;
+const NETFLIX_JSON = /\/metadata(\?|\/|$)|manifest/i;
+const PRIME_JSON = /GetPlaybackResources|playback[^/?]*\.json/i;
+
+/**
+ * @param {string} url
+ * @param {string} host        location.hostname of the page
+ * @param {{ contentType?: string, length?: number, binary?: boolean }} facts
+ *   length 0 = unknown; binary = an XHR arraybuffer response
+ * @returns {'json'|'subtitle'|'peek'|null}
+ *   json      player data we extract titles / subtitle URLs from
+ *   subtitle  a caption file
+ *   peek      binary that might be a caption file: check its first bytes only
+ */
+export function classifyResponse(url, host, { contentType = '', length = 0, binary = false } = {}) {
+  if (length > MAX_INSPECT_BYTES) return null;
+  const path = url.replace(/^[a-z]+:\/\/[^/]+/i, '');
+  const netflix = /(^|\.)netflix\.com$/.test(host);
+  if (netflix ? NETFLIX_JSON.test(path) : PRIME_JSON.test(path)) return 'json';
+  if (/video|audio|octet|image|font|javascript|css|html|json/i.test(contentType)) return null;
+  if (SUBTITLE_PATH.test(path) || SUBTITLE_TYPE.test(contentType)) return 'subtitle';
+  // Netflix serves media and caption files from the same CDN URLs (?o=...).
+  // Media is labelled (octet-stream, handled above); only unlabelled binary is
+  // worth a look at its first bytes.
+  if (netflix && binary && !contentType && /[?&]o=/.test(path)) return 'peek';
+  return null;
+}

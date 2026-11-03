@@ -70,6 +70,7 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
     disabled: new Set(),
     video: null,
     mutedByUs: false,
+    captionsHidden: false,
     prevMuted: false,
     blurred: false,
     lastSeek: null,
@@ -129,20 +130,25 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
 
   // ---- identification & lookup -------------------------------------------------
 
-  async function loadTitle(ident) {
-    restorePlayback();
+  /**
+   * @param {object} ident
+   * @param {{ refresh?: boolean }} [opts] refresh: same episode, better metadata —
+   *   look it up again but keep the subtitle scan and session choices.
+   */
+  async function loadTitle(ident, { refresh = false } = {}) {
     state.ident = ident;
     state.key = titleKey(ident.platform, ident.platformId);
-    Object.assign(state, { remote: [], local: [], subtitle: [], subtitleInfo: null, profiles: [], borrowedFrom: null, disabled: new Set(), lastSeek: null, markStart: null });
     const key = state.key;
-
-    const pending = state.pendingSubs.get(ident.platformId) || state.pendingSubs.get('__unassigned');
-    if (pending) handleSubtitles(pending, true);
-    state.pendingSubs.clear();
-
-    const { offsets } = alive() ? await chrome.storage.local.get('offsets') : {};
-    state.offset = offsets?.[key] || 0;
-    replan();
+    if (!refresh) {
+      restorePlayback();
+      Object.assign(state, { remote: [], local: [], subtitle: [], subtitleInfo: null, profiles: [], borrowedFrom: null, disabled: new Set(), lastSeek: null, markStart: null });
+      const pending = state.pendingSubs.get(ident.platformId) || state.pendingSubs.get('__unassigned');
+      if (pending) handleSubtitles(pending, true);
+      state.pendingSubs.clear();
+      const { offsets } = alive() ? await chrome.storage.local.get('offsets') : {};
+      state.offset = offsets?.[key] || 0;
+      replan();
+    }
 
     const res = await bg({ type: 'lookup', title: { ...ident.meta, platform: ident.platform, platformId: ident.platformId, canonicalKey: ident.canonicalKey } });
     if (state.key !== key) return; // navigated away meanwhile
@@ -153,6 +159,7 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
     state.online = !!res?.online;
     state.lookupError = res?.error || null;
     replan();
+    if (refresh) return;
     if (state.settings.enabled && state.remote.length + state.local.length) {
       const n = state.remote.length + state.local.length;
       overlay.toast(`${displayTitle(ident.meta)} · ${n} tagged scene${n === 1 ? '' : 's'} · filtering at ${activeList()?.name || describeProfile(effectiveProfile())}`, { ms: 4000 });
@@ -175,7 +182,7 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
       loadTitle(ident);
     } else if (ident.canonicalKey && !state.ident.canonicalKey) {
       // Metadata arrived after the first lookup: retry so cross-platform tags can be found.
-      loadTitle(ident);
+      loadTitle(ident, { refresh: true });
     }
     if (!state.subtitleInfo && adapter.readTextTracks) {
       const cues = adapter.readTextTracks(video);
@@ -244,6 +251,7 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
   }
 
   function setCaptionsHidden(hidden) {
+    state.captionsHidden = hidden;
     if (!adapter.captionSelector) return;
     for (const el of document.querySelectorAll(adapter.captionSelector)) el.classList.toggle('cleancut-hide-captions', hidden);
   }
@@ -251,18 +259,20 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
   function restorePlayback() {
     const v = state.video;
     if (v && state.mutedByUs) v.muted = state.prevMuted;
-    if (v) v.classList.remove('cleancut-blur');
+    if (v && state.blurred) v.classList.remove('cleancut-blur');
     state.mutedByUs = false;
     state.blurred = false;
-    setCaptionsHidden(false);
+    if (state.captionsHidden) setCaptionsHidden(false);
   }
 
-  function tick() {
+  // Runs every 100 ms while playing, and on every seek (event argument).
+  function tick(event) {
     const video = state.video;
     if (!video || !state.plan || !state.settings.enabled || !video.isConnected || video.readyState === 0) {
       if (!state.settings.enabled) restorePlayback();
       return;
     }
+    if (video.paused && !event) return; // nothing moves while paused; seeks call us directly
     const t = adapter.currentTime(video);
     const duration = video.duration;
     overlay.setPlayhead(t, duration);

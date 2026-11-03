@@ -33,7 +33,8 @@ export function netflixAdapter(bridge) {
     onPageMessage(type, payload) {
       if (type === 'netflix-metadata') Object.assign(metadata, payload);
     },
-    findVideo: () => document.querySelector('.watch-video video') || largestVideo(),
+    // Only the watch page plays episodes; browse-page trailers are not ours.
+    findVideo: () => (location.pathname.startsWith('/watch/') ? document.querySelector('.watch-video video') || largestVideo() : null),
     identify() {
       const m = /\/watch\/(\d+)/.exec(location.pathname);
       if (!m) return null;

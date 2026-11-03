@@ -66,7 +66,18 @@ export class Overlay {
     this.video = null;
     this.hideTimer = null;
     this.form = null;
-    this.onMove = () => this.reveal();
+    // Nothing is rendered over the video unless there is something to show:
+    // an element composited on top of a playing video costs GPU time on every
+    // frame and can stop the browser handing the video to a hardware overlay.
+    this.revealed = false;
+    this.lastReveal = 0;
+    this.lastRect = '';
+    this.lastPlayhead = '';
+    this.root.style.display = 'none';
+    this.onMove = () => {
+      const now = performance.now();
+      if (now - this.lastReveal > 250) this.reveal(); // mousemove fires ~60×/s
+    };
     document.addEventListener('mousemove', this.onMove, { passive: true });
     document.addEventListener('fullscreenchange', () => this.attach());
     this.attach();
@@ -80,27 +91,48 @@ export class Overlay {
 
   setVideo(video) {
     this.video = video;
-    this.position();
+    this.lastRect = '';
+    this.updateVisibility();
+  }
+
+  get visible() {
+    return this.root.style.display !== 'none';
+  }
+
+  /** Show the overlay only while a toast, the form or the revealed timeline needs it. */
+  updateVisibility() {
+    const wanted = !!(this.video?.isConnected && (this.revealed || this.form || this.toasts.childElementCount));
+    if (wanted === this.visible) return;
+    this.root.style.display = wanted ? 'block' : 'none';
+    if (wanted) {
+      this.lastRect = '';
+      this.lastPlayhead = '';
+      this.position();
+    }
   }
 
   position() {
-    if (!this.video || !this.video.isConnected) {
-      this.root.style.display = 'none';
-      return;
-    }
+    if (!this.visible || !this.video) return;
     const r = this.video.getBoundingClientRect();
-    Object.assign(this.root.style, { display: 'block', left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
+    const rect = `${r.left}|${r.top}|${r.width}|${r.height}`;
+    if (rect === this.lastRect) return;
+    this.lastRect = rect;
+    Object.assign(this.root.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px` });
   }
 
   reveal(ms = 2500) {
+    this.lastReveal = performance.now();
+    this.revealed = true;
+    this.updateVisibility();
     this.timeline.classList.add('show');
     this.badge.classList.add('show');
     clearTimeout(this.hideTimer);
     this.hideTimer = setTimeout(() => {
-      if (!this.form) {
-        this.timeline.classList.remove('show');
-        this.badge.classList.remove('show');
-      }
+      if (this.form) return;
+      this.revealed = false;
+      this.timeline.classList.remove('show');
+      this.badge.classList.remove('show');
+      setTimeout(() => this.updateVisibility(), 300); // after the fade-out
     }, ms);
   }
 
@@ -123,7 +155,11 @@ export class Overlay {
   }
 
   setPlayhead(time, duration) {
-    if (duration > 0) this.playhead.style.left = `${(time / duration) * 100}%`;
+    if (!this.revealed || !(duration > 0)) return;
+    const left = `${((time / duration) * 100).toFixed(2)}%`;
+    if (left === this.lastPlayhead) return;
+    this.lastPlayhead = left;
+    this.playhead.style.left = left;
   }
 
   toast(message, { color = '#4f7cff', actionLabel, onAction, ms = 5000 } = {}) {
@@ -142,12 +178,17 @@ export class Overlay {
       b.addEventListener('click', () => {
         onAction?.();
         el.remove();
+        this.updateVisibility();
       });
       el.append(b);
     }
     this.toasts.append(el);
     while (this.toasts.children.length > 3) this.toasts.firstChild.remove();
-    setTimeout(() => el.remove(), ms);
+    this.updateVisibility();
+    setTimeout(() => {
+      el.remove();
+      this.updateVisibility();
+    }, ms);
     return el;
   }
 
@@ -200,14 +241,18 @@ export class Overlay {
       });
       this.form = form;
       this.root.append(form);
+      this.updateVisibility();
       this.reveal(600000);
       form.querySelector('.chip').focus();
     });
   }
 
   closeForm() {
+    const wasOpen = !!this.form;
     this.form?.remove();
     this.form = null;
+    if (wasOpen) this.reveal(); // restart the normal hide timer
+    this.updateVisibility();
   }
 
   destroy() {

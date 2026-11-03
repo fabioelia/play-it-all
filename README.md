@@ -206,6 +206,12 @@ npm test            # 26 unit + API + scanner tests (node:test)
 npm run test:e2e    # loads the built extension in headless Chromium against the demo
 ```
 
+`npm run bench` measures the extension's cost on a simulated Netflix watch page.
+It serves a fake `www.netflix.com` locally with Netflix-like traffic, then
+compares main-thread script time, style and layout work, and dropped frames
+with and without the extension. Add `PROFILE=1` to print the hottest
+functions.
+
 The end-to-end test plays the demo episode and checks:
 
 - the community-tagged skip, the scan-ahead skip, mute and unmute, and gore;

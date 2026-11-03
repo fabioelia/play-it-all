@@ -12,6 +12,8 @@
 // Messages are window.postMessage with { __cleancut: 'page' | 'content' }.
 
 import {
+  MAX_INSPECT_BYTES,
+  classifyResponse,
   extractNetflixMetadata,
   extractNetflixTimedText,
   extractPrimeSubtitles,
@@ -23,40 +25,49 @@ import {
   if (window.__cleancutHooked) return;
   window.__cleancutHooked = true;
 
-  const MAX_BODY = 8 * 1024 * 1024;
+  const HOST = location.hostname;
+  const IS_NETFLIX = /(^|\.)netflix\.com$/.test(HOST);
   const origFetch = window.fetch.bind(window);
   const fetchedSubs = new Set();
 
   // The content script loads later (document_idle) than this hook
-  // (document_start), so findings are buffered and replayed when it says hello.
-  const backlog = [];
-  const post = (type, payload) => {
+  // (document_start), so findings are kept and replayed when it says hello.
+  // Only the latest of each kind is kept: subtitle files are large.
+  const backlog = new Map();
+  const post = (type, payload, key = type) => {
     if (type !== 'seek-result') {
-      backlog.push({ type, payload });
-      if (backlog.length > 20) backlog.shift();
+      backlog.delete(key);
+      backlog.set(key, { type, payload });
+      if (backlog.size > 6) backlog.delete(backlog.keys().next().value);
     }
     window.postMessage({ __cleancut: 'page', type, payload }, location.origin);
   };
 
-  const INTERESTING = /manifest|metadata|GetPlaybackResources|playback|timedtext|subtitle|caption|\.vtt|\.dfxp|\.ttml|\.xml|\?o=/i;
+  // Parsing waits until the player has finished handling the response, so it
+  // never lengthens the player's own task.
+  const later = (fn) => setTimeout(() => {
+    try { fn(); } catch { /* never break the page */ }
+  }, 0);
 
-  function inspectText(url, text) {
-    if (!text || text.length > MAX_BODY) return;
-    if (looksLikeSubtitle(text)) {
-      if (fetchedSubs.has(url)) return;
-      fetchedSubs.add(url);
-      post('subtitles', { url, text, forId: null, passive: true });
+  function postSubtitles(url, text, extra) {
+    if (fetchedSubs.has(url)) return;
+    fetchedSubs.add(url);
+    post('subtitles', { url, text, ...extra }, `subtitles:${extra.forId ?? ''}`);
+  }
+
+  function inspectText(url, text, kind) {
+    if (!text) return;
+    if (kind === 'subtitle' || kind === 'peek') {
+      if (looksLikeSubtitle(text)) postSubtitles(url, text, { forId: null, passive: true });
       return;
     }
-    const first = text.trimStart()[0];
-    if (first !== '{' && first !== '[') return;
     let json;
     try { json = JSON.parse(text); } catch { return; }
     inspectJson(url, json);
   }
 
   function inspectJson(url, json) {
-    if (/netflix/.test(location.hostname)) {
+    if (IS_NETFLIX) {
       const meta = extractNetflixMetadata(json);
       if (Object.keys(meta).length) post('netflix-metadata', meta);
       const tracks = extractNetflixTimedText(json);
@@ -83,8 +94,7 @@ import {
         if (!res.ok) continue;
         const text = await res.text();
         if (!looksLikeSubtitle(text)) continue;
-        fetchedSubs.add(track.url);
-        post('subtitles', { url: track.url, text, forId, sdh: track.sdh, language: track.language });
+        postSubtitles(track.url, text, { forId, sdh: track.sdh, language: track.language });
         return;
       } catch {
         // CDN refused or format we cannot read; try the next track.
@@ -97,10 +107,14 @@ import {
     const res = await origFetch(input, init);
     try {
       const url = typeof input === 'string' ? input : input?.url || String(input);
-      const type = res.headers.get('content-type') || '';
-      const len = Number(res.headers.get('content-length') || 0);
-      if (len <= MAX_BODY && (INTERESTING.test(url) || /json|xml|vtt|ttml/.test(type)) && !/video|audio|octet/.test(type)) {
-        res.clone().text().then((t) => inspectText(url, t)).catch(() => {});
+      const kind = classifyResponse(url, HOST, {
+        contentType: res.headers.get('content-type') || '',
+        length: Number(res.headers.get('content-length') || 0),
+      });
+      // 'peek' never applies to fetch: cloning a media stream to look at it
+      // would cost more than it could find.
+      if (kind === 'json' || kind === 'subtitle') {
+        res.clone().text().then((t) => later(() => inspectText(url, t, kind)), () => {});
       }
     } catch { /* never break the player */ }
     return res;
@@ -114,24 +128,39 @@ import {
     this.__ccUrl = String(url);
     return origOpen.call(this, method, url, ...rest);
   };
-  XHR.send = function (...args) {
-    this.addEventListener('load', () => {
-      try {
-        const url = this.__ccUrl || '';
-        const rt = this.responseType;
-        if (rt === '' || rt === 'text') {
-          if (INTERESTING.test(url) || looksLikeSubtitle(this.responseText.slice(0, 300))) inspectText(url, this.responseText);
-        } else if (rt === 'json') {
-          if (this.response && INTERESTING.test(url)) inspectJson(url, this.response);
-        } else if (rt === 'arraybuffer' && this.response && this.response.byteLength <= MAX_BODY) {
-          // Video segments arrive here too: peek at a few bytes before decoding.
-          const head = new TextDecoder().decode(new Uint8Array(this.response, 0, Math.min(300, this.response.byteLength)));
-          if (looksLikeSubtitle(head) || (INTERESTING.test(url) && /^\s*[{[]/.test(head))) {
-            inspectText(url, new TextDecoder().decode(this.response));
-          }
+  function onXhrLoad() {
+    try {
+      const url = this.__ccUrl || '';
+      const rt = this.responseType;
+      const binary = rt === 'arraybuffer';
+      // Decide from the URL and headers only. Touching this.response here would
+      // materialise every media segment as an ArrayBuffer.
+      const kind = classifyResponse(url, HOST, {
+        contentType: this.getResponseHeader('content-type') || '',
+        length: Number(this.getResponseHeader('content-length') || 0),
+        binary,
+      });
+      if (!kind) return;
+      if (binary && this.response?.byteLength > MAX_INSPECT_BYTES) return;
+      if (rt === 'json') {
+        const json = this.response;
+        if (json) later(() => inspectJson(url, json));
+      } else if (rt === '' || rt === 'text') {
+        const text = this.responseText;
+        later(() => inspectText(url, text, kind));
+      } else if (binary && this.response) {
+        const buf = this.response;
+        if (kind === 'peek') {
+          // Media segments land here too: look at a few bytes, decode only captions.
+          const head = new TextDecoder().decode(new Uint8Array(buf, 0, Math.min(300, buf.byteLength)));
+          if (!looksLikeSubtitle(head)) return;
         }
-      } catch { /* ignore */ }
-    });
+        later(() => inspectText(url, new TextDecoder().decode(buf), kind));
+      }
+    } catch { /* ignore */ }
+  }
+  XHR.send = function (...args) {
+    this.addEventListener('load', onXhrLoad);
     return origSend.apply(this, args);
   };
 
@@ -151,7 +180,7 @@ import {
     if (e.source !== window || e.data?.__cleancut !== 'content') return;
     const { type, seconds, reqId } = e.data;
     if (type === 'hello') {
-      for (const m of backlog) window.postMessage({ __cleancut: 'page', ...m }, location.origin);
+      for (const m of backlog.values()) window.postMessage({ __cleancut: 'page', ...m }, location.origin);
     } else if (type === 'seek') {
       const p = netflixPlayer();
       let ok = false;
