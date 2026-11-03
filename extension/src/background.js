@@ -3,6 +3,8 @@
 // prepares GitHub submissions. There is no CleanCut server.
 
 import { listsFor, lookup, normalizeList } from '../../shared/catalog.js';
+import { analyzeCues } from '../../shared/analyzer.js';
+import { detectFormat, parseSubtitles, ttmlLanguage } from '../../shared/subtitles.js';
 import { titleKey } from '../../shared/identity.js';
 import { validateSegment } from '../../shared/validate.js';
 import { defaultProfile } from '../../shared/ratings.js';
@@ -200,7 +202,32 @@ async function stopList({ scopeKeys }) {
   return { ok: true };
 }
 
+/**
+ * Parse and scan a subtitle track here, in the extension's own process, so
+ * none of it runs on the streaming page's main thread. Returns only what the
+ * page needs: cue start times (for syncing) and the detected segments.
+ */
+function scanSubtitles({ text, cues: given, languageMode }) {
+  let cues = given;
+  if (typeof text === 'string') {
+    if (detectFormat(text) === 'ttml') {
+      const lang = ttmlLanguage(text);
+      if (lang && !/^en\b/i.test(lang)) return { ok: false, reason: `not English (${lang})` };
+    }
+    cues = parseSubtitles(text);
+  }
+  if (!Array.isArray(cues) || cues.length < 5) return { ok: false, reason: 'too few subtitle lines' };
+  return {
+    ok: true,
+    count: cues.length,
+    cueStarts: cues.map((c) => Math.round(c.start * 1000) / 1000),
+    sdh: cues.some((c) => /\[[^\]]+\]/.test(c.text)),
+    segments: analyzeCues(cues, { languageMode }),
+  };
+}
+
 const handlers = {
+  scanSubtitles: (m) => scanSubtitles(m),
   lookup: (m) => lookupTitle(m.title),
   saveTag: (m) => saveTag(m),
   deleteTag: (m) => deleteTag(m),

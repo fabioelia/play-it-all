@@ -156,3 +156,12 @@ export function classifyResponse(url, host, { contentType = '', length = 0, bina
   if (netflix && binary && !contentType && /[?&]o=/.test(path)) return 'peek';
   return null;
 }
+
+// Requests whose responses could matter, judged from the URL alone so the
+// page hook can ignore everything else without attaching a listener. Media
+// segments are deliberately excluded: Netflix subtitle files are found
+// through the manifest, never by inspecting media traffic.
+const CANDIDATE_URL = /\/metadata(\?|\/|$)|manifest|GetPlaybackResources|playback[^/?]*\.json|\.(vtt|dfxp|ttml2?|srt|xml)(\?|$)|subtitle|caption|timedtext/i;
+export function mayMatter(url) {
+  return CANDIDATE_URL.test(String(url).replace(/^[a-z]+:\/\/[^/]+/i, ''));
+}

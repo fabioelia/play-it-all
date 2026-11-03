@@ -5,14 +5,15 @@
 // What has to be here, because it must exist before the player starts:
 //  1. fetch / XMLHttpRequest wrappers that notice the few responses CleanCut
 //     uses (episode metadata, the manifest listing subtitle tracks, subtitle
-//     files). They decide from the URL and headers only, never parse, and
-//     pass the raw body on. Every other response is never touched.
+//     files). Requests whose URL cannot matter get no listener at all (that
+//     includes every media segment); the rest are checked by headers, never
+//     parsed here, and their raw body is passed on.
 //  2. The Netflix seek bridge: assigning video.currentTime directly crashes
 //     the Netflix player (error M7375), so seeks go through its own API.
 //
 // Messages are window.postMessage with { __cleancut: 'page' | 'content' }.
 
-import { MAX_INSPECT_BYTES, classifyResponse, looksLikeSubtitle } from '../../shared/sources.js';
+import { MAX_INSPECT_BYTES, classifyResponse, mayMatter } from '../../shared/sources.js';
 
 (() => {
   if (window.__cleancutHooked) return;
@@ -35,9 +36,15 @@ import { MAX_INSPECT_BYTES, classifyResponse, looksLikeSubtitle } from '../../sh
 
   window.fetch = function (input, init) {
     const pending = origFetch(input, init);
+    let url;
+    try {
+      url = typeof input === 'string' ? input : input?.url || String(input);
+    } catch {
+      return pending;
+    }
+    if (!mayMatter(url)) return pending; // nearly every request: untouched
     pending.then((res) => {
       try {
-        const url = typeof input === 'string' ? input : input?.url || String(input);
         const kind = classifyResponse(url, HOST, {
           contentType: res.headers.get('content-type') || '',
           length: Number(res.headers.get('content-length') || 0),
@@ -71,15 +78,13 @@ import { MAX_INSPECT_BYTES, classifyResponse, looksLikeSubtitle } from '../../sh
       if (!kind) return;
       if (rt === 'json') return forward(url, kind, this.response);
       if (rt === '' || rt === 'text') return forward(url, kind, this.responseText);
-      if (binary && this.response && this.response.byteLength <= MAX_INSPECT_BYTES) {
-        const buf = this.response;
-        if (kind === 'peek' && !looksLikeSubtitle(new TextDecoder().decode(new Uint8Array(buf, 0, Math.min(300, buf.byteLength))))) return;
-        forward(url, kind === 'peek' ? 'subtitle' : kind, new TextDecoder().decode(buf));
+      if (binary && kind !== 'peek' && this.response && this.response.byteLength <= MAX_INSPECT_BYTES) {
+        forward(url, kind, new TextDecoder().decode(this.response));
       }
     } catch { /* ignore */ }
   }
   XHR.send = function (...args) {
-    this.addEventListener('load', onXhrLoad);
+    if (mayMatter(this.__ccUrl || '')) this.addEventListener('load', onXhrLoad);
     return origSend.apply(this, args);
   };
 

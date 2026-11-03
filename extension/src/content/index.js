@@ -3,8 +3,6 @@
 // the <video> element — skip, mute, hide picture — according to the profile.
 
 import { buildPlan, decide, skippedSeconds } from '../../../shared/engine.js';
-import { analyzeCues } from '../../../shared/analyzer.js';
-import { detectFormat, parseSubtitles, ttmlLanguage } from '../../../shared/subtitles.js';
 import { displayTitle, formatTime, titleKey } from '../../../shared/identity.js';
 import { CATEGORIES, SEVERITIES, defaultProfile, describeProfile } from '../../../shared/ratings.js';
 import { segmentsFor, referenceCues } from '../../../shared/catalog.js';
@@ -62,7 +60,7 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
     remote: [],
     local: [],
     subtitle: [],
-    subtitleInfo: null, // { cues, sdh, url }
+    subtitleInfo: null, // { source: {text}|{cues}, url, sdh, count, cueStarts, mode }
     pendingSubs: new Map(), // forId → payload, for tracks that arrive before/after their episode
     profiles: [],
     episode: null, // catalog file for this title, if any
@@ -126,9 +124,34 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
 
   // ---- planning --------------------------------------------------------------
 
-  function analyzeSubtitles() {
-    if (!state.subtitleInfo) return;
-    state.subtitle = analyzeCues(state.subtitleInfo.cues, { languageMode: effectiveProfile().languageMode });
+  /** Re-scan only when the language setting changed (scanning runs in the background worker). */
+  async function analyzeSubtitles() {
+    const info = state.subtitleInfo;
+    const mode = effectiveProfile().languageMode;
+    if (!info || info.mode === mode) return;
+    const key = state.key;
+    const r = await bg({ type: 'scanSubtitles', ...info.source, languageMode: mode });
+    if (state.key !== key || state.subtitleInfo !== info || !r?.ok) return;
+    info.mode = mode;
+    state.subtitle = r.segments;
+    replan();
+  }
+
+  /**
+   * Hand a subtitle track to the background worker for parsing and scanning;
+   * the page's main thread only sends the text and receives the results.
+   */
+  async function scanTrack(source, { url, sdh = false }) {
+    const key = state.key;
+    const mode = effectiveProfile().languageMode;
+    const r = await bg({ type: 'scanSubtitles', ...source, languageMode: mode });
+    if (!r?.ok || state.key !== key) return false;
+    if (state.subtitleInfo?.sdh && !(sdh || r.sdh)) return false; // keep the richer SDH track
+    state.subtitleInfo = { source, url, sdh: sdh || r.sdh, count: r.count, cueStarts: r.cueStarts, mode };
+    state.subtitle = r.segments;
+    syncFromSubtitles();
+    replan();
+    return true;
   }
 
   /**
@@ -148,7 +171,7 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
     const known = ep.platforms?.[platform];
     state.alignment = null;
     if (!(known && Number.isFinite(known.offset)) && state.subtitleInfo && referenceCues(ep).length) {
-      state.alignment = alignCues(referenceCues(ep), state.subtitleInfo.cues.map((c) => c.start));
+      state.alignment = alignCues(referenceCues(ep), state.subtitleInfo.cueStarts);
     }
     const r = segmentsFor(ep, platform, state.alignment || undefined);
     state.remote = r.segments;
@@ -239,13 +262,13 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
       // Metadata arrived after the first lookup: retry so cross-platform tags can be found.
       loadTitle(ident, { refresh: true });
     }
-    if (!state.subtitleInfo && adapter.readTextTracks) {
+    if (!state.subtitleInfo && !state.trackScanPending && adapter.readTextTracks) {
       const cues = adapter.readTextTracks(video);
       if (cues?.length) {
-        state.subtitleInfo = { cues, sdh: false, url: 'textTracks' };
-        analyzeSubtitles();
-        syncFromSubtitles();
-        replan();
+        state.trackScanPending = true;
+        scanTrack({ cues }, { url: 'textTracks' }).finally(() => {
+          state.trackScanPending = false;
+        });
       }
     }
   }
@@ -271,21 +294,12 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
       state.pendingSubs.set(forId, payload); // next episode prefetch
       return;
     }
-    const format = detectFormat(text);
-    if (format === 'ttml') {
-      const lang = ttmlLanguage(text);
-      if (lang && !/^en\b/i.test(lang)) return;
-    }
     if (state.subtitleInfo?.url === url) return; // already analyzed (replayed message)
     if (state.subtitleInfo?.sdh && !sdh) return; // keep the richer SDH track
-    const cues = parseSubtitles(text);
-    if (cues.length < 5) return;
-    state.subtitleInfo = { cues, sdh: !!sdh || cues.some((c) => /\[[^\]]+\]/.test(c.text)), url };
-    analyzeSubtitles();
-    syncFromSubtitles();
-    replan();
-    const found = state.subtitle.length;
-    if (found) overlay.toast(`Scanned ahead: ${found} possible issue${found === 1 ? '' : 's'} found in subtitles`, { ms: 3500, color: '#7cb342' });
+    scanTrack({ text }, { url, sdh: !!sdh }).then((ok) => {
+      const found = state.subtitle.length;
+      if (ok && found) overlay.toast(`Scanned ahead: ${found} possible issue${found === 1 ? '' : 's'} found in subtitles`, { ms: 3500, color: '#7cb342' });
+    });
   }
 
   // Responses the page hook forwarded are parsed here, after the player has
@@ -516,7 +530,7 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
         local: count((s) => s === 'local'),
         subtitles: count((s) => s === 'subtitles'),
       },
-      subtitle: state.subtitleInfo ? { cues: state.subtitleInfo.cues.length, sdh: state.subtitleInfo.sdh } : null,
+      subtitle: state.subtitleInfo ? { cues: state.subtitleInfo.count, sdh: state.subtitleInfo.sdh } : null,
       actions: plan?.actions || [],
       flagged: plan?.flagged || [],
       skipped: plan ? skippedSeconds(plan.actions, v?.duration) : 0,
@@ -554,7 +568,7 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
           return { ok: true };
         case 'share': {
           if (!state.ident) return { error: 'nothing playing' };
-          const cues = state.subtitleInfo?.cues;
+          const cues = state.subtitleInfo?.cueStarts;
           return bg({
             type: 'shareTags',
             title: submissionTitle(),
