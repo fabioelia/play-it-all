@@ -225,8 +225,8 @@ export class Overlay {
     return el;
   }
 
-  /** Quick-tag form. Resolves with { category, severity, note, share } or null. */
-  openTagForm({ start, end, canShare }) {
+  /** Quick-tag form. Resolves with { category, severity, note } or null. */
+  openTagForm({ start, end }) {
     this.closeForm();
     return new Promise((resolve) => {
       const form = document.createElement('div');
@@ -236,7 +236,6 @@ export class Overlay {
         <div class="row cats" role="group" aria-label="Category"></div>
         <div class="row sev" role="group" aria-label="Severity"></div>
         <div class="row"><input type="text" class="note" maxlength="280" placeholder="Note (optional), e.g. 'brothel scene'"></div>
-        <div class="row share-row"><label><input type="checkbox" class="share"> Share with the community</label></div>
         <div class="actions"><button class="btn cancel">Cancel</button><button class="btn primary save">Save tag</button></div>`;
       let category = 'violence';
       let severity = 2;
@@ -256,17 +255,13 @@ export class Overlay {
       };
       chips(form.querySelector('.cats'), CATEGORIES.map((c) => [c.id, c.label]), () => category, (v) => (category = v));
       chips(form.querySelector('.sev'), Object.entries(SEVERITIES).map(([n, l]) => [Number(n), l]), () => severity, (v) => (severity = v));
-      const share = form.querySelector('.share');
-      share.checked = !!canShare;
-      share.disabled = !canShare;
-      if (!canShare) form.querySelector('.share-row label').append(' (set up an account in Options)');
       const done = (value) => {
         this.closeForm();
         resolve(value);
       };
       form.querySelector('.cancel').addEventListener('click', () => done(null));
       form.querySelector('.save').addEventListener('click', () =>
-        done({ category, severity, note: form.querySelector('.note').value.trim(), share: share.checked }));
+        done({ category, severity, note: form.querySelector('.note').value.trim() }));
       // Keep the site's keyboard shortcuts (space = pause, f = fullscreen) out of the form.
       form.addEventListener('keydown', (e) => {
         e.stopPropagation();

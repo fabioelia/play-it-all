@@ -144,14 +144,17 @@ function renderPage() {
     return;
   }
   const c = page.counts;
-  const parts = [`${c.community} community tag${c.community === 1 ? '' : 's'}`];
+  const parts = [page.catalog ? `${c.community} catalog tag${c.community === 1 ? '' : 's'}` : 'not in the catalog yet'];
   if (c.local) parts.push(`${c.local} yours`);
   parts.push(page.subtitle ? `${c.subtitles} from subtitle scan (${page.subtitle.cues} lines${page.subtitle.sdh ? ', SDH' : ''})` : 'subtitles not scanned yet');
   $('now-sources').textContent = parts.join(' · ');
 
   const warn = [];
-  if (page.lookupError) warn.push(`Database offline (${page.lookupError}) — using cache and local tags.`);
-  if (page.borrowedFrom) warn.push(`Timing borrowed from ${page.borrowedFrom.platform}; nudge Sync if cuts land early or late.`);
+  if (page.lookupError) warn.push(`Catalog unavailable (${page.lookupError}); using the cached copy and your own tags.`);
+  const cat = page.catalog;
+  if (cat?.timing === 'unsynced') warn.push(`These tags were timed on ${cat.timeline}. Turn on English subtitles to sync them automatically, or nudge Sync.`);
+  if (cat?.timing === 'aligned') warn.push(`Synced to this service from subtitle timing (${cat.alignment.offset >= 0 ? '+' : ''}${cat.alignment.offset}s). Sharing your tags adds this sync to the catalog.`);
+  if (cat?.via === 'alias' || cat?.via === 'title') warn.push(`Matched by title as ${cat.key}.`);
   if (!page.subtitle && page.platform !== 'web') warn.push('Tip: turn on English [CC] subtitles once so CleanCut can scan ahead.');
   $('now-warning').hidden = !warn.length;
   $('now-warning').textContent = warn.join(' ');
@@ -161,6 +164,8 @@ function renderPage() {
   renderUpcoming();
   renderLists();
   $('mark-state').textContent = page.markStart != null ? `Start marked at ${formatTime(page.markStart)}` : '';
+  $('share').hidden = !page.unshared;
+  $('share').textContent = `Share ${page.unshared} tag${page.unshared === 1 ? '' : 's'} on GitHub`;
 }
 
 function renderUpcoming() {
@@ -207,7 +212,15 @@ function renderUpcoming() {
 function scopeKeys() {
   const keys = [page.titleKey, '*'];
   if (page.ident?.canonicalKey) keys.push(`ck:${page.ident.canonicalKey}`);
+  if (page.catalog?.key) keys.push(`ck:${page.catalog.key}`, `show:${page.catalog.key.split('/')[0]}`);
   return keys;
+}
+
+/** Where an adopted list applies: everything, the whole show, or one title. */
+function scopeKeyFor(list) {
+  if (list.scope === '*') return '*';
+  if (list.scope.includes('/') || list.scope === page.catalog?.key) return `ck:${list.scope}`;
+  return `show:${list.scope}`;
 }
 
 function renderLists() {
@@ -229,7 +242,7 @@ function renderLists() {
   if (!page.profiles.length) {
     const li = document.createElement('li');
     li.className = 'small muted';
-    li.textContent = page.online === false ? 'Community lists unavailable offline.' : 'No published skip lists for this title yet.';
+    li.textContent = page.online === false ? 'Skip lists unavailable offline.' : 'No skip lists for this title yet.';
     ul.append(li);
     return;
   }
@@ -242,7 +255,7 @@ function renderLists() {
     const meta = document.createElement('div');
     meta.className = 'small muted';
     const preset = p.settings.preset === 'custom' ? 'custom' : PRESETS[p.settings.preset]?.label;
-    meta.textContent = `${preset} · by ${p.author} · ${p.subscribers} using${p.titleKey || p.canonicalKey ? '' : ' · all titles'}`;
+    meta.textContent = `${preset}${p.author ? ` · by ${p.author}` : ''} · ${p.scope === '*' ? 'all titles' : p.scope.includes('/') ? 'this title' : 'this show'}`;
     if (p.description) meta.title = p.description;
     info.append(name, meta);
     const use = document.createElement('button');
@@ -250,8 +263,7 @@ function renderLists() {
     use.textContent = active?.id === p.id ? 'Active' : 'Use';
     use.disabled = active?.id === p.id;
     use.addEventListener('click', async () => {
-      const scopeKey = p.titleKey || p.canonicalKey ? (p.titleKey === page.titleKey ? page.titleKey : `ck:${page.ident.canonicalKey || p.canonicalKey}`) : '*';
-      await chrome.runtime.sendMessage({ type: 'useList', profile: p, scopeKey });
+      await chrome.runtime.sendMessage({ type: 'useList', profile: p, scopeKey: scopeKeyFor(p) });
       setTimeout(refreshPage, 150);
     });
     li.append(info, use);
@@ -301,15 +313,37 @@ async function main() {
   });
   $('options').addEventListener('click', () => chrome.runtime.openOptionsPage());
 
-  const dialog = $('publish-dialog');
-  $('publish').addEventListener('click', async () => {
-    const { apiKey } = await chrome.storage.local.get('apiKey');
-    if (!apiKey) {
-      chrome.runtime.openOptionsPage();
+  // Sharing goes through GitHub: open a prefilled "Submit to the catalog" issue.
+  async function openOnGitHub(res, note) {
+    if (!res.prefilled) {
+      try {
+        await navigator.clipboard.writeText(res.json);
+        note.textContent = 'Too long to prefill: the submission is on your clipboard. Paste it into the form that just opened.';
+      } catch {
+        note.textContent = 'Too long to prefill. Copy it from Options → Export instead.';
+      }
+    }
+    await chrome.tabs.create({ url: res.url });
+  }
+
+  $('share').addEventListener('click', async () => {
+    const res = await toContent({ type: 'share' });
+    if (!res || res.error) {
+      $('mark-state').textContent = res?.error || 'Nothing to share.';
       return;
     }
-    $('pub-title').closest('label').hidden = !page?.ident;
-    $('pub-title-name').textContent = page?.title || 'this title';
+    await chrome.runtime.sendMessage({ type: 'markShared', titleKey: page.titleKey, ids: res.ids });
+    await toContent({ type: 'shared', ids: res.ids });
+    await openOnGitHub(res, $('mark-state'));
+  });
+
+  const dialog = $('publish-dialog');
+  $('publish').addEventListener('click', () => {
+    const key = page?.catalog?.key;
+    $('pub-scope-show').hidden = !key?.includes('/');
+    $('pub-scope-title').hidden = !key;
+    $('pub-scope-title').textContent = page?.title ? `Only ${page.title}` : 'Only this title';
+    $('pub-scope').value = '*';
     $('pub-error').textContent = '';
     dialog.showModal();
   });
@@ -320,22 +354,25 @@ async function main() {
       $('pub-error').textContent = 'Give it a name (3+ characters).';
       return;
     }
-    const forTitle = page?.ident && $('pub-title').checked;
+    const key = page?.catalog?.key;
+    const scope = { '*': '*', show: key?.split('/')[0], title: key }[$('pub-scope').value] || '*';
+    // Catalog tags you chose to let play this session become explicit exceptions.
+    const letPlay = scope === key && page ? page.flagged
+      .filter((f) => page.actions.some((a) => page.disabled.includes(a.key) && a.segmentIds.includes(f.id)))
+      .map((f) => f.id).filter((id) => !/^(local|sub):/.test(id)) : [];
     const res = await chrome.runtime.sendMessage({
-      type: 'publishProfile',
+      type: 'shareList',
       name,
       description: $('pub-desc').value.trim(),
-      title: forTitle ? { ...page.ident.meta, platform: page.ident.platform, platformId: page.ident.platformId, canonicalKey: page.ident.canonicalKey } : null,
-      // Segments you chose to let play this session become explicit exceptions.
-      overrides: forTitle ? { exclude: page.flagged.filter((f) => page.actions.some((a) => page.disabled.includes(a.key) && a.segmentIds.includes(f.id))).map((f) => f.id).filter((id) => /^\d+$/.test(id)) } : undefined,
+      scope,
+      overrides: { include: [], exclude: letPlay },
     });
     if (res?.error) {
       $('pub-error').textContent = res.error;
       return;
     }
     dialog.close();
-    await toContent({ type: 'refresh' });
-    refreshPage();
+    await openOnGitHub(res, $('list-note'));
   });
 
   await refreshPage();

@@ -62,23 +62,30 @@
       <button id="mark-start">Mark start</button>
       <button id="mark-end">Mark end…</button>
     </div>
+    <button id="share" class="wide primary" hidden>Share on GitHub</button>
     <div class="small muted" id="mark-state"></div>
   </section>
 
   <footer>
-    <button id="publish" class="link">Publish my settings as a skip list…</button>
+    <button id="publish" class="link">Share my settings as a skip list…</button>
     <button id="options" class="link">Options</button>
   </footer>
 
   <dialog id="publish-dialog">
     <form method="dialog">
-      <h2>Publish a skip list</h2>
-      <p class="small muted">Shares your rating settings (and which segments you let play) so others can use them.</p>
+      <h2>Share a skip list</h2>
+      <p class="small muted">Opens a GitHub issue with your rating settings (and the scenes you chose to let play). Once merged, anyone can use it.</p>
       <label>Name <input id="pub-name" required minlength="3" maxlength="80" placeholder="e.g. GoT for teens"></label>
       <label>Description <textarea id="pub-desc" maxlength="1000" rows="3" placeholder="What does this cut keep and remove?"></textarea></label>
-      <label class="check"><input type="checkbox" id="pub-title" checked> Only for <span id="pub-title-name">this title</span></label>
+      <label>Applies to
+        <select id="pub-scope">
+          <option value="*">Everything</option>
+          <option value="show" id="pub-scope-show">This whole show</option>
+          <option value="title" id="pub-scope-title">Only this title</option>
+        </select>
+      </label>
       <div class="small warn" id="pub-error"></div>
-      <div class="row end"><button value="cancel" formnovalidate>Cancel</button><button id="pub-go" value="ok" class="primary">Publish</button></div>
+      <div class="row end"><button value="cancel" formnovalidate>Cancel</button><button id="pub-go" value="ok" class="primary">Open on GitHub</button></div>
     </form>
   </dialog>
   <script src="popup.js"></script>

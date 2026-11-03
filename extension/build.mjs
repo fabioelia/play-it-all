@@ -22,7 +22,9 @@ const STREAMING = [
     `https://www.amazon.${tld}/dp/*`,
   ]),
 ];
-// Local development: the demo page and the default community server.
+// The community catalog, read straight from GitHub.
+const CATALOG = ['https://raw.githubusercontent.com/*'];
+// Local development: the demo page and a local catalog (npm run dev).
 const DEV = ['http://localhost/*', 'http://127.0.0.1/*'];
 
 function manifest(target) {
@@ -31,12 +33,12 @@ function manifest(target) {
     name: 'CleanCut — watch at your rating',
     short_name: 'CleanCut',
     version: pkg.version,
-    description: 'Make any show PG-13, PG or G: skips, mutes or blurs explicit scenes on Netflix and Prime Video using community tags and scan-ahead subtitle analysis.',
+    description: 'Make any show PG-13, PG or G: skips, mutes or hides explicit scenes on Netflix and Prime Video using a community catalog on GitHub and scan-ahead subtitle analysis.',
     icons: { 16: 'icons/icon-16.png', 32: 'icons/icon-32.png', 48: 'icons/icon-48.png', 128: 'icons/icon-128.png' },
     action: { default_popup: 'popup.html', default_title: 'CleanCut', default_icon: { 16: 'icons/icon-16.png', 32: 'icons/icon-32.png' } },
     options_ui: { page: 'options.html', open_in_tab: true },
     permissions: ['storage', 'scripting', 'activeTab'],
-    host_permissions: [...STREAMING, ...DEV],
+    host_permissions: [...STREAMING, ...CATALOG, ...DEV],
     optional_host_permissions: ['https://*/*', 'http://*/*'],
     content_scripts: [
       { matches: [...STREAMING, ...DEV], js: ['page-hook.js'], run_at: 'document_start', world: 'MAIN' },

@@ -31,7 +31,7 @@
 <body>
 <main>
   <h1>CleanCut demo player</h1>
-  <p>A stand-in for a streaming episode, so the extension can run without DRM content. Install the extension, start the server (<code>npm run server</code>), then press play. Use the extension's toolbar button to pick a rating.</p>
+  <p>A stand-in for a streaming episode, so the extension can run without DRM content. Install the extension, run <code>npm run dev</code>, then press play. Use the extension's toolbar button to pick a rating.</p>
 
   <video id="v" controls preload="auto" crossorigin="anonymous">
     <source src="/demo.webm" type="video/webm">
@@ -41,17 +41,15 @@
     <section class="card">
       <h2>What's in this "episode"</h2>
       <ul>
-        <li><span class="sw" style="background:#e53935"></span>0:20–0:30 strong violence: tagged by the community</li>
+        <li><span class="sw" style="background:#e53935"></span>0:20–0:30 strong violence: tagged in the catalog</li>
         <li><span class="sw" style="background:#c2185b"></span>0:44–0:52 sexual content: <em>not tagged</em>, found by scan-ahead from SDH captions</li>
         <li><span class="sw" style="background:#f9a825"></span>1:00–1:02 strong language: found by scan-ahead</li>
-        <li><span class="sw" style="background:#8e0000"></span>1:10–1:15 strong gore: tagged by the community</li>
+        <li><span class="sw" style="background:#8e0000"></span>1:10–1:15 strong gore: tagged in the catalog</li>
       </ul>
     </section>
     <section class="card">
-      <h2>Setup</h2>
-      <p>Seed the community tags for this episode on your local server:</p>
-      <button id="seed">Seed demo tags</button>
-      <p id="seed-status"></p>
+      <h2>Where the tags come from</h2>
+      <p>The two community tags for this episode are in the catalog at <code>catalog/shows/cleancut-demo/s01e01.json</code>, matched by the <code>cleancut:id</code> tag on this page. Run <code>npm run dev</code> and set the extension's catalog to <code>http://localhost:8787/catalog/</code> to try local changes.</p>
     </section>
   </div>
 
@@ -89,33 +87,6 @@
     v.append(track);
   }
 
-  document.getElementById('seed').addEventListener('click', async () => {
-    const status = document.getElementById('seed-status');
-    try {
-      let key = localStorage.getItem('cleancut-demo-key');
-      if (!key) {
-        const u = await (await fetch('/v1/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'demo-seeder' }) })).json();
-        key = u.apiKey;
-        localStorage.setItem('cleancut-demo-key', key);
-      }
-      const res = await fetch('/v1/segments', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-        body: JSON.stringify({
-          title: { platform: 'web', platformId: 'demo-episode-1', series: 'CleanCut Demo', season: 1, episode: 1, name: 'Pilot', duration: 90 },
-          segments: [
-            { start: 20, end: 30, category: 'violence', severity: 3, note: 'sword fight' },
-            { start: 70, end: 75, category: 'gore', severity: 3, note: 'aftermath' },
-          ],
-        }),
-      });
-      const body = await res.json();
-      if (!res.ok) throw new Error(body.error);
-      status.textContent = `Seeded ${body.ids.length} tags. Reload the page so the extension picks them up.`;
-    } catch (e) {
-      status.textContent = `Failed: ${e.message}. Is the server running?`;
-    }
-  });
 </script>
 </body>
 </html>

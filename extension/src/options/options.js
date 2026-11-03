@@ -1,4 +1,4 @@
-import { DEFAULT_API } from '../config.js';
+import { CATALOG_REPO, DEFAULT_CATALOG } from '../config.js';
 
 const $ = (id) => document.getElementById(id);
 const say = (id, text, ok = true) => {
@@ -6,90 +6,67 @@ const say = (id, text, ok = true) => {
   $(id).style.color = ok ? 'var(--ok)' : 'var(--bad)';
 };
 
-async function settings() {
-  const { settings: s } = await chrome.storage.sync.get('settings');
-  return s || {};
+async function getSettings() {
+  const { settings } = await chrome.storage.sync.get('settings');
+  return settings || {};
+}
+async function patchSettings(patch) {
+  await chrome.storage.sync.set({ settings: { ...(await getSettings()), ...patch } });
 }
 
-async function checkServer() {
-  const s = await settings();
-  const base = (s.apiBase || DEFAULT_API).replace(/\/+$/, '');
-  $('api').value = base;
-  try {
-    const res = await fetch(`${base}/health`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    say('api-status', `Connected to ${base}`);
-  } catch (e) {
-    say('api-status', `Cannot reach ${base} (${e.message}). Filtering still works with your own tags and subtitle scanning.`, false);
+async function showCatalog() {
+  const s = await getSettings();
+  $('base').value = s.catalogBase || DEFAULT_CATALOG;
+  $('repo').value = s.catalogRepo || CATALOG_REPO;
+  $('contributing').href = `https://github.com/${s.catalogRepo || CATALOG_REPO}/blob/main/CONTRIBUTING.md`;
+  const st = await chrome.runtime.sendMessage({ type: 'catalogStatus' });
+  if (st?.counts) {
+    const c = st.counts;
+    const when = st.generated ? new Date(st.generated).toLocaleString() : 'unknown';
+    say('catalog-status', `${st.online ? 'Connected' : 'Offline (using cached copy)'}: ${c.shows} shows, ${c.movies} films, ${c.episodes} episodes and films with ${c.segments} tags, ${c.lists} skip lists. Updated ${when}.`, st.online);
+  } else {
+    say('catalog-status', `Cannot read the catalog at ${st?.base || 'that address'}${st?.error ? ` (${st.error})` : ''}. Filtering still works with your own tags and subtitle scanning.`, false);
   }
 }
 
-async function renderAccount() {
-  const { apiKey, userName } = await chrome.storage.local.get(['apiKey', 'userName']);
-  $('account-none').hidden = !!apiKey;
-  $('account-some').hidden = !apiKey;
-  $('who').textContent = userName || 'unknown';
+async function renderTags() {
   const { localTags = {} } = await chrome.storage.local.get('localTags');
   const all = Object.values(localTags).flatMap((e) => e.segments);
-  const unshared = all.filter((s) => !s.remoteId).length;
-  $('tag-count').textContent = `${all.length} tag${all.length === 1 ? '' : 's'} across ${Object.keys(localTags).length} title${Object.keys(localTags).length === 1 ? '' : 's'}${unshared ? ` (${unshared} not shared)` : ''}.`;
+  const unshared = all.filter((s) => !s.sharedAt).length;
+  const titles = Object.keys(localTags).length;
+  $('tag-count').textContent = `${all.length} tag${all.length === 1 ? '' : 's'} across ${titles} title${titles === 1 ? '' : 's'}${unshared ? ` (${unshared} not shared yet: share them from the popup while the title is open)` : ''}.`;
 }
 
-$('api-save').addEventListener('click', async () => {
+$('base-save').addEventListener('click', async () => {
   let url;
   try {
-    url = new URL($('api').value.trim());
+    url = new URL($('base').value.trim());
   } catch {
-    return say('api-status', 'Enter a full URL, e.g. https://cleancut.example.org', false);
+    return say('catalog-status', 'Enter a full address, e.g. https://raw.githubusercontent.com/owner/repo/main/catalog/', false);
   }
-  const origin = `${url.origin}/*`;
   const local = /^(localhost|127\.0\.0\.1)$/.test(url.hostname);
-  if (!local && !(await chrome.permissions.request({ origins: [origin] }))) {
-    return say('api-status', 'Permission to contact that server was not granted.', false);
+  const github = url.hostname === 'raw.githubusercontent.com';
+  if (!local && !github && !(await chrome.permissions.request({ origins: [`${url.origin}/*`] }))) {
+    return say('catalog-status', 'Permission to read from that address was not granted.', false);
   }
-  const s = await settings();
-  await chrome.storage.sync.set({ settings: { ...s, apiBase: url.origin } });
-  checkServer();
+  await patchSettings({ catalogBase: url.href.endsWith('/') ? url.href : `${url.href}/` });
+  await chrome.runtime.sendMessage({ type: 'clearCache' });
+  showCatalog();
 });
-
-$('register').addEventListener('click', async () => {
-  const res = await chrome.runtime.sendMessage({ type: 'register', name: $('name').value.trim() });
-  if (res?.error) return say('account-status', res.error, false);
-  say('account-status', `Welcome, ${res.name}!`);
-  renderAccount();
+$('base-reset').addEventListener('click', async () => {
+  await patchSettings({ catalogBase: undefined });
+  await chrome.runtime.sendMessage({ type: 'clearCache' });
+  showCatalog();
 });
-
-$('key-save').addEventListener('click', async () => {
-  const key = $('key').value.trim();
-  const s = await settings();
-  try {
-    const res = await fetch(`${(s.apiBase || DEFAULT_API).replace(/\/+$/, '')}/v1/me`, { headers: { Authorization: `Bearer ${key}` } });
-    const me = await res.json();
-    if (!res.ok) throw new Error(me.error);
-    await chrome.storage.local.set({ apiKey: key, userName: me.name });
-    say('account-status', `Signed in as ${me.name}`);
-    renderAccount();
-  } catch (e) {
-    say('account-status', `Key rejected: ${e.message}`, false);
-  }
+$('repo-save').addEventListener('click', async () => {
+  const repo = $('repo').value.trim();
+  if (!/^[\w.-]+\/[\w.-]+$/.test(repo)) return say('catalog-status', 'Use the form owner/repo.', false);
+  await patchSettings({ catalogRepo: repo });
+  showCatalog();
 });
-
-$('share-all').addEventListener('click', async () => {
-  const res = await chrome.runtime.sendMessage({ type: 'shareAll' });
-  if (res?.error) return say('account-status', res.error, false);
-  say('account-status', `Shared ${res.uploaded} tag${res.uploaded === 1 ? '' : 's'}.`);
-  renderAccount();
-});
-
-$('show-key').addEventListener('click', async () => {
-  const { apiKey } = await chrome.storage.local.get('apiKey');
-  $('key-out').textContent = `${apiKey} — keep it secret; it lets anyone post as you.`;
-});
-
-$('signout').addEventListener('click', async () => {
-  await chrome.storage.local.remove(['apiKey', 'userName']);
-  $('key-out').textContent = '';
-  renderAccount();
+$('refresh').addEventListener('click', async () => {
+  await chrome.runtime.sendMessage({ type: 'clearCache' });
+  showCatalog();
 });
 
 $('export').addEventListener('click', async () => {
@@ -117,16 +94,11 @@ $('import').addEventListener('change', async (e) => {
     }
     await chrome.storage.local.set({ localTags });
     say('tag-status', `Imported ${added} tag${added === 1 ? '' : 's'}.`);
-    renderAccount();
+    renderTags();
   } catch (err) {
     say('tag-status', `Import failed: ${err.message}`, false);
   }
 });
 
-$('clear-cache').addEventListener('click', async () => {
-  await chrome.storage.local.remove('lookupCache');
-  say('tag-status', 'Cache cleared.');
-});
-
-checkServer();
-renderAccount();
+showCatalog();
+renderTags();

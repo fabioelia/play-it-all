@@ -1,12 +1,14 @@
-// Content script: identifies what is playing, gathers segments (community
-// database, your own tags, scan-ahead subtitle analysis), and drives the
-// <video> element — skip, mute, blur — according to the active profile.
+// Content script: identifies what is playing, gathers segments (the community
+// catalog on GitHub, your own tags, scan-ahead subtitle analysis), and drives
+// the <video> element — skip, mute, hide picture — according to the profile.
 
 import { buildPlan, decide, skippedSeconds } from '../../../shared/engine.js';
 import { analyzeCues } from '../../../shared/analyzer.js';
 import { detectFormat, parseSubtitles, ttmlLanguage } from '../../../shared/subtitles.js';
 import { displayTitle, formatTime, titleKey } from '../../../shared/identity.js';
 import { CATEGORIES, SEVERITIES, defaultProfile, describeProfile } from '../../../shared/ratings.js';
+import { segmentsFor, referenceCues } from '../../../shared/catalog.js';
+import { alignCues, fingerprint } from '../../../shared/align.js';
 import { detectAdapter } from './adapters.js';
 import { CATEGORY_COLORS, Overlay } from './overlay.js';
 
@@ -62,7 +64,11 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
     subtitleInfo: null, // { cues, sdh, url }
     pendingSubs: new Map(), // forId → payload, for tracks that arrive before/after their episode
     profiles: [],
-    borrowedFrom: null,
+    episode: null, // catalog file for this title, if any
+    catalogKey: null,
+    via: null, // how the catalog matched: platform id, title or alias
+    timing: null, // native | synced | aligned | unsynced
+    alignment: null, // offset measured on this device from subtitles
     online: null,
     lookupError: null,
     offset: 0,
@@ -103,7 +109,13 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
 
   function activeList() {
     if (!state.ident) return state.activeLists['*'] || null;
-    return state.activeLists[state.key] || (state.ident.canonicalKey && state.activeLists[`ck:${state.ident.canonicalKey}`]) || state.activeLists['*'] || null;
+    const lists = state.activeLists;
+    const ck = state.catalogKey;
+    return lists[state.key]
+      || (ck && lists[`ck:${ck}`])
+      || (state.ident.canonicalKey && lists[`ck:${state.ident.canonicalKey}`])
+      || (ck && lists[`show:${ck.split('/')[0]}`])
+      || lists['*'] || null;
   }
 
   function effectiveProfile() {
@@ -118,9 +130,47 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
     state.subtitle = analyzeCues(state.subtitleInfo.cues, { languageMode: effectiveProfile().languageMode });
   }
 
+  /**
+   * Catalog tags on this service's clock. When the catalog has not timed this
+   * service yet, measure its clock by matching our subtitle timing against the
+   * episode's fingerprint; failing that, show them on the reference clock and
+   * let the viewer nudge Sync.
+   */
+  function computeRemote() {
+    const ep = state.episode;
+    if (!ep) {
+      state.remote = [];
+      state.timing = null;
+      return;
+    }
+    const platform = state.ident.platform;
+    const known = ep.platforms?.[platform];
+    state.alignment = null;
+    if (!(known && Number.isFinite(known.offset)) && state.subtitleInfo && referenceCues(ep).length) {
+      state.alignment = alignCues(referenceCues(ep), state.subtitleInfo.cues.map((c) => c.start));
+    }
+    const r = segmentsFor(ep, platform, state.alignment || undefined);
+    state.remote = r.segments;
+    state.timing = r.timing;
+  }
+
+  /** Subtitles just arrived: catalog tags timed elsewhere may now be alignable. */
+  function syncFromSubtitles() {
+    if (!state.episode || state.timing !== 'unsynced') return;
+    computeRemote();
+    if (state.timing === 'aligned') {
+      const a = state.alignment;
+      overlay.toast(`Synced ${state.remote.length} tag${state.remote.length === 1 ? '' : 's'} to this service from subtitle timing (${a.offset >= 0 ? '+' : ''}${a.offset}s)`, { ms: 5000, color: '#7cb342' });
+    }
+  }
+
   function replan() {
     const shift = (s) => ({ ...s, start: s.start + state.offset, end: s.end + state.offset });
-    const all = [...state.remote.map(shift), ...state.local, ...state.subtitle];
+    const remote = state.remote.map(shift);
+    // Tags you shared come back through the catalog once merged; count them once.
+    const overlaps = (a, b) => a.category === b.category && Math.min(a.end, b.end) - Math.max(a.start, b.start) > 0.6 * (Math.max(a.end, b.end) - Math.min(a.start, b.start));
+    const local = state.local.filter((l) => !l.sharedAt || !remote.some((r) => overlaps(r, l)));
+    const all = [...remote, ...local, ...state.subtitle];
     const list = activeList();
     state.plan = buildPlan(all, effectiveProfile(), { overrides: list?.overrides });
     const duration = state.video?.duration;
@@ -144,7 +194,7 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
     const key = state.key;
     if (!refresh) {
       restorePlayback();
-      Object.assign(state, { remote: [], local: [], subtitle: [], subtitleInfo: null, profiles: [], borrowedFrom: null, disabled: new Set(), lastSeek: null, seekPending: false, markStart: null });
+      Object.assign(state, { remote: [], local: [], subtitle: [], subtitleInfo: null, profiles: [], episode: null, catalogKey: null, via: null, timing: null, alignment: null, disabled: new Set(), lastSeek: null, seekPending: false, markStart: null });
       const pending = state.pendingSubs.get(ident.platformId) || state.pendingSubs.get('__unassigned');
       if (pending) handleSubtitles(pending, true);
       state.pendingSubs.clear();
@@ -155,20 +205,22 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
 
     const res = await bg({ type: 'lookup', title: { ...ident.meta, platform: ident.platform, platformId: ident.platformId, canonicalKey: ident.canonicalKey } });
     if (state.key !== key) return; // navigated away meanwhile
-    state.remote = res?.remote || [];
+    state.episode = res?.episode || null;
+    state.catalogKey = res?.catalogKey || null;
+    state.via = res?.via || null;
     state.local = res?.local || [];
-    state.profiles = res?.profiles || [];
-    state.borrowedFrom = res?.borrowedFrom || null;
+    state.profiles = res?.lists || [];
     state.online = !!res?.online;
     state.lookupError = res?.error || null;
+    computeRemote();
     replan();
     if (refresh) return;
     if (state.settings.enabled && state.remote.length + state.local.length) {
       const n = state.remote.length + state.local.length;
       overlay.toast(`${displayTitle(ident.meta)} · ${n} tagged scene${n === 1 ? '' : 's'} · filtering at ${activeList()?.name || describeProfile(effectiveProfile())}`, { ms: 4000 });
     }
-    if (state.borrowedFrom) {
-      overlay.toast(`Tags borrowed from ${state.borrowedFrom.platform}; adjust sync in the CleanCut popup if cuts land early or late.`, { ms: 8000, color: '#f9a825' });
+    if (state.timing === 'unsynced' && state.remote.length) {
+      overlay.toast(`These tags were timed on ${state.episode.timeline}. Turn on English subtitles so CleanCut can sync them, or nudge Sync in the popup.`, { ms: 8000, color: '#f9a825' });
     }
   }
 
@@ -191,6 +243,7 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
       if (cues?.length) {
         state.subtitleInfo = { cues, sdh: false, url: 'textTracks' };
         analyzeSubtitles();
+        syncFromSubtitles();
         replan();
       }
     }
@@ -228,6 +281,7 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
     if (cues.length < 5) return;
     state.subtitleInfo = { cues, sdh: !!sdh || cues.some((c) => /\[[^\]]+\]/.test(c.text)), url };
     analyzeSubtitles();
+    syncFromSubtitles();
     replan();
     const found = state.subtitle.length;
     if (found) overlay.toast(`Scanned ahead: ${found} possible issue${found === 1 ? '' : 's'} found in subtitles`, { ms: 3500, color: '#7cb342' });
@@ -354,6 +408,20 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
     return { ok: true, start: state.markStart };
   }
 
+  /** The title as the catalog wants it in a submission. */
+  function submissionTitle() {
+    const m = state.ident.meta || {};
+    const duration = state.video?.duration;
+    return {
+      platform: state.ident.platform,
+      platformId: state.ident.platformId,
+      ...(m.series ? { series: m.series, season: m.season, episode: m.episode } : {}),
+      ...(m.name ? { name: m.name } : {}),
+      ...(m.year ? { year: m.year } : {}),
+      ...(Number.isFinite(duration) ? { runtime: Math.round(duration) } : {}),
+    };
+  }
+
   async function markEnd() {
     const video = state.video;
     if (!video || !state.ident) return { error: 'no video' };
@@ -368,20 +436,18 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
     state.markStart = null;
     const wasPlaying = !video.paused;
     video.pause();
-    const { apiKey } = alive() ? await chrome.storage.local.get('apiKey') : {};
-    const answer = await overlay.openTagForm({ start, end, canShare: !!apiKey });
+    const answer = await overlay.openTagForm({ start, end });
     if (wasPlaying) video.play().catch(() => {});
     if (!answer) return { cancelled: true };
     const res = await bg({
       type: 'saveTag',
-      title: { ...state.ident.meta, platform: state.ident.platform, platformId: state.ident.platformId, canonicalKey: state.ident.canonicalKey, duration: video.duration },
+      title: submissionTitle(),
       segment: { start, end, category: answer.category, severity: answer.severity, note: answer.note },
-      share: answer.share,
     });
     if (res?.segment) {
       state.local.push(res.segment);
       replan();
-      overlay.toast(res.shared ? 'Tag saved and shared — thank you!' : `Tag saved locally${res.shareError ? ` (sharing failed: ${res.shareError})` : ''}`, { color: '#7cb342' });
+      overlay.toast('Tag saved. Share your tags on GitHub from the CleanCut popup when you are done.', { color: '#7cb342' });
     } else overlay.toast(`Could not save tag: ${res?.error || 'unknown error'}`, { color: '#e53935' });
     return res;
   }
@@ -419,7 +485,16 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
       offset: state.offset,
       online: state.online,
       lookupError: state.lookupError,
-      borrowedFrom: state.borrowedFrom,
+      catalog: state.episode ? {
+        key: state.catalogKey,
+        via: state.via,
+        timing: state.timing,
+        alignment: state.alignment,
+        timeline: state.episode.timeline,
+        platforms: Object.keys(state.episode.platforms || {}),
+        segments: state.episode.segments?.length || 0,
+      } : null,
+      unshared: state.local.filter((l) => !l.sharedAt).length,
       counts: {
         community: count((s) => s === 'community' || s === 'scanner'),
         local: count((s) => s === 'local'),
@@ -461,6 +536,19 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
         case 'markEnd':
           markEnd();
           return { ok: true };
+        case 'share': {
+          if (!state.ident) return { error: 'nothing playing' };
+          const cues = state.subtitleInfo?.cues;
+          return bg({
+            type: 'shareTags',
+            title: submissionTitle(),
+            label: displayTitle(state.ident.meta),
+            sync: cues?.length ? fingerprint(cues, 300) : null,
+          });
+        }
+        case 'shared':
+          for (const l of state.local) if (msg.ids.includes(l.id)) l.sharedAt = Date.now();
+          return snapshot();
         case 'refresh':
           if (state.ident) await loadTitle(state.ident);
           return snapshot();

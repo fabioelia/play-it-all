@@ -1,31 +1,58 @@
-// End-to-end: loads the built extension into Chromium, runs the community
-// server, plays the demo "episode" and checks that scenes are really skipped,
-// muted and blurred.
+// End-to-end: loads the built extension into Chromium, serves the demo
+// "episode" and a copy of the catalog locally, plays it and checks that scenes
+// are really skipped, muted and hidden, that tags timed on another service are
+// synced from subtitle timing, and that sharing produces a submission the
+// catalog bot accepts.
 //
 //   npm run test:e2e
-import { spawn } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 
 import { ensureDemoVideo, explainLaunchError, loadChromium } from '../support/browser.mjs';
+import { buildIndex, formatCatalogJson } from '../../shared/catalog.js';
 
 const chromium = loadChromium();
 
 const root = fileURLToPath(new URL('../../', import.meta.url));
 const ext = join(root, 'extension/dist/chrome');
-const PORT = 8787; // the extension's default API
+const PORT = 8787;
 const BASE = `http://localhost:${PORT}`;
+const XPLAT = `http://localhost:${PORT + 1}`;
 const tmp = mkdtempSync(join(tmpdir(), 'cleancut-e2e-'));
 
 ensureDemoVideo();
 
-const server = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', join(root, 'server/src/index.js')], {
-  env: { ...process.env, PORT: String(PORT), HOST: '127.0.0.1', CLEANCUT_DB: join(tmp, 'e2e.db') },
-  stdio: ['ignore', 'pipe', 'inherit'],
+// A copy of the repository's catalog, and a variant in which the demo
+// episode's tags were timed on "Netflix" 5 s later and the demo page is not
+// listed at all: the extension has to find it by title and sync from subtitles.
+const catalogDir = join(tmp, 'catalog');
+cpSync(join(root, 'catalog'), catalogDir, { recursive: true });
+const xplatDir = join(tmp, 'catalog-xplat');
+cpSync(join(root, 'catalog'), xplatDir, { recursive: true });
+{
+  const file = join(xplatDir, 'shows/cleancut-demo/s01e01.json');
+  const ep = JSON.parse(readFileSync(file, 'utf8'));
+  ep.timeline = 'netflix';
+  ep.platforms = { netflix: { id: '80000099', offset: 0, speed: 1 } };
+  ep.sync.cues = ep.sync.cues.map((c) => c + 5);
+  ep.segments = ep.segments.map((x) => ({ ...x, on: 'netflix', start: x.start + 5, end: x.end + 5 }));
+  writeFileSync(file, formatCatalogJson(ep));
+  const read = (f) => JSON.parse(readFileSync(join(xplatDir, f), 'utf8'));
+  writeFileSync(join(xplatDir, 'index.json'), formatCatalogJson(buildIndex({
+    shows: { 'cleancut-demo': read('shows/cleancut-demo/show.json') },
+    episodes: [ep],
+    lists: [read('lists/family-night.json'), read('lists/teen-friendly.json')],
+  })));
+}
+const devServer = (port, dir) => spawn(process.execPath, [join(root, 'scripts/dev-server.mjs')], {
+  env: { ...process.env, PORT: String(port), HOST: '127.0.0.1', CATALOG_DIR: dir },
+  stdio: ['ignore', 'ignore', 'inherit'],
 });
+const servers = [devServer(PORT, catalogDir), devServer(PORT + 1, xplatDir)];
 let context;
 const results = [];
 
@@ -53,26 +80,9 @@ async function waitFor(fn, { timeout = 10_000, interval = 100, what = 'condition
 }
 
 try {
-  // ---- server + seed ----------------------------------------------------------
-  await waitFor(() => fetch(`${BASE}/health`).then((r) => r.ok, () => false), { what: 'server' });
-  const { apiKey } = await (await fetch(`${BASE}/v1/users`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'e2e' }) })).json();
-  const seeded = await fetch(`${BASE}/v1/segments`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({
-      title: { platform: 'web', platformId: 'demo-episode-1', series: 'CleanCut Demo', season: 1, episode: 1, name: 'Pilot', duration: 90 },
-      segments: [
-        { start: 20, end: 30, category: 'violence', severity: 3, note: 'sword fight' },
-        { start: 70, end: 75, category: 'gore', severity: 3 },
-      ],
-    }),
-  });
-  assert.equal(seeded.status, 201);
-  await fetch(`${BASE}/v1/profiles`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${apiKey}` },
-    body: JSON.stringify({ name: 'Demo: everything goes', settings: { preset: 'unfiltered' }, title: { platform: 'web', platformId: 'demo-episode-1' } }),
-  });
+  for (const base of [BASE, XPLAT]) {
+    await waitFor(() => fetch(`${base}/catalog/index.json`).then((r) => r.ok, () => false), { what: `dev server ${base}` });
+  }
 
   // ---- browser with the extension ----------------------------------------------
   context = await chromium.launchPersistentContext(join(tmp, 'profile'), {
@@ -86,7 +96,18 @@ try {
     const { settings } = await chrome.storage.sync.get('settings');
     await chrome.storage.sync.set({ settings: { ...settings, ...p, profile: { ...settings.profile, ...(p.profile || {}) } } });
   }, patch);
-  await waitFor(() => worker.evaluate(() => chrome.storage.sync.get('settings').then((s) => !!s.settings)), { what: 'default settings' });
+  await waitFor(() => worker.evaluate(() => chrome.storage.sync.get('settings').then((s) => !!s.settings?.profile)), { what: 'default settings' });
+  const useCatalog = async (base) => {
+    await setSettings({ catalogBase: `${base}/catalog/` });
+    await worker.evaluate(() => chrome.storage.local.remove('catalogCache'));
+  };
+  await useCatalog(BASE);
+  // Sharing opens github.com; keep the test offline and just read the link.
+  const githubRequests = [];
+  await context.route('https://github.com/**', (r) => {
+    githubRequests.push(r.request().url());
+    r.abort();
+  });
 
   const page = await context.newPage();
   const errors = [];
@@ -110,7 +131,7 @@ try {
   console.log('CleanCut e2e');
   await openDemo();
 
-  await step('identifies the title and builds a PG-13 plan from tags + subtitle scan', async () => {
+  await step('finds the title in the catalog and builds a PG-13 plan from tags + subtitle scan', async () => {
     const text = await waitFor(async () => {
       const b = await badge();
       return /4 cuts/.test(b) && b;
@@ -118,7 +139,7 @@ try {
     assert.match(text, /PG-13/);
   });
 
-  await step('skips a community-tagged violent scene (0:20–0:30)', async () => {
+  await step('skips a catalog-tagged violent scene (0:20–0:30)', async () => {
     await playFrom(17.5);
     const seek = await waitFor(async () => (await autoSeeks()).find((s) => s.to >= 29.9), { what: 'skip past 0:30' });
     assert.ok(seek.from < 20.5, `skipped from ${seek.from}`);
@@ -143,7 +164,7 @@ try {
     await waitFor(async () => (await autoSeeks()).find((s) => s.to >= 74.9), { what: 'skip past 1:15' });
   });
 
-  await step('"blur" action blurs instead of skipping', async () => {
+  await step('"hide picture" action hides instead of skipping', async () => {
     await setSettings({ profile: { actions: { violence: 'blur' } } });
     await page.waitForTimeout(300);
     await playFrom(19);
@@ -174,16 +195,15 @@ try {
     assert.ok(t > 20 && t < 29, `now playing inside the scene at ${t}`);
   });
 
-  await step('a published community skip list can be adopted', async () => {
-    const lookup = await (await fetch(`${BASE}/v1/lookup?platform=web&id=demo-episode-1`)).json();
-    const list = lookup.profiles.find((p) => p.name === 'Demo: everything goes');
+  await step('a skip list from the catalog can be adopted', async () => {
+    const list = JSON.parse(readFileSync(join(catalogDir, 'lists/family-night.json'), 'utf8'));
     // Store the list exactly as the popup's "Use" button does (background useList).
     await worker.evaluate(async (profile) => {
       const { activeLists = {} } = await chrome.storage.local.get('activeLists');
       activeLists['web:demo-episode-1'] = { id: profile.id, name: profile.name, settings: profile.settings, overrides: profile.overrides, scope: 'this title' };
       await chrome.storage.local.set({ activeLists });
     }, list);
-    await waitFor(async () => /everything goes · 0 cuts/.test(await badge()), { what: 'list applied' });
+    await waitFor(async () => /Family movie night · 4 cuts/.test(await badge()), { what: 'list applied' });
     await worker.evaluate(() => chrome.storage.local.remove('activeLists'));
     await waitFor(async () => /4 cuts/.test(await badge()), { what: 'list removed' });
   });
@@ -209,6 +229,40 @@ try {
     await waitFor(async () => /5 cuts/.test(await badge()), { what: 'new tag in plan' });
   });
 
+  await step('"Share on GitHub" opens a prefilled issue the catalog bot accepts', async () => {
+    const tabId = await worker.evaluate(async () => (await chrome.tabs.query({ url: 'http://localhost/*' }))[0].id);
+    const popup = await context.newPage();
+    await popup.goto(`chrome-extension://${extensionId}/popup.html?tab=${tabId}`);
+    const share = popup.locator('#share');
+    await share.waitFor();
+    assert.match(await share.textContent(), /Share 1 tag on GitHub/);
+    await share.click();
+    const url = new URL(await waitFor(() => githubRequests.find((u) => u.includes('/issues/new')), { what: 'GitHub issue link' }));
+    if (process.env.DEBUG_E2E) console.log('      link:', githubRequests.map((u) => u.slice(0, 300)));
+    for (const p of context.pages()) if (p !== page && p !== popup) await p.close();
+    await popup.close();
+    assert.equal(url.hostname, 'github.com');
+    assert.equal(url.searchParams.get('template'), 'submit-to-catalog.yml');
+    const submission = JSON.parse(url.searchParams.get('submission'));
+    assert.deepEqual(submission.title.platform, 'web');
+    assert.deepEqual(submission.title.platformId, 'demo-episode-1');
+    assert.equal(submission.title.series, 'CleanCut Demo');
+    assert.equal(submission.segments.length, 1);
+    assert.equal(submission.segments[0].category, 'drugs');
+    assert.ok(submission.sync.length >= 20, 'includes subtitle timing');
+    // What the GitHub Action does with the issue body:
+    const body = `### Submission\n\n\`\`\`json\n${JSON.stringify(submission, null, 1)}\n\`\`\`\n`;
+    writeFileSync(join(tmp, 'issue.md'), body);
+    const r = spawnSync(process.execPath, [join(root, 'scripts/catalog.mjs'), 'ingest', join(tmp, 'issue.md'), '--dir', catalogDir, '--author', 'e2e-user'], { encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    const ep = JSON.parse(readFileSync(join(catalogDir, 'shows/cleancut-demo/s01e01.json'), 'utf8'));
+    assert.equal(ep.segments.length, 3);
+    assert.equal(ep.segments.find((x) => x.category === 'drugs').by, 'e2e-user');
+    // Shared tags are marked, so the button does not offer them again.
+    const tags = await worker.evaluate(() => chrome.storage.local.get('localTags').then((x) => x.localTags));
+    assert.ok(tags['web:demo-episode-1'].segments[0].sharedAt);
+  });
+
   await step('page hook finds the subtitle track from player JSON (Prime-style) and scans it', async () => {
     await worker.evaluate(() => chrome.storage.local.remove('localTags'));
     await openDemo('?mode=hook');
@@ -216,6 +270,17 @@ try {
     await waitFor(async () => /4 cuts/.test(await badge()), { what: 'badge with 4 cuts via hook' });
     await playFrom(58.5);
     await waitFor(async () => (await events()).some((e) => e.type === 'muted'), { what: 'mute from hooked subtitles' });
+  });
+
+  await step('tags timed on another service are synced from subtitle timing', async () => {
+    await useCatalog(XPLAT);
+    await openDemo();
+    await page.locator('cleancut-overlay .toast', { hasText: 'Synced 2 tags' }).waitFor({ timeout: 10_000 });
+    await waitFor(async () => /4 cuts/.test(await badge()), { what: 'badge with 4 cuts after sync' });
+    await playFrom(17.5);
+    const seek = await waitFor(async () => (await autoSeeks()).find((x) => x.to >= 29.9), { what: 'synced skip past 0:30' });
+    assert.ok(seek.from < 20.5 && seek.to < 31, JSON.stringify(seek));
+    await useCatalog(BASE);
   });
 
   await step('popup renders without errors', async () => {
@@ -231,7 +296,7 @@ try {
     const options = await context.newPage();
     options.on('pageerror', (e) => perrs.push(e.message));
     await options.goto(`chrome-extension://${extensionId}/options.html`);
-    await options.locator('#api-status', { hasText: 'Connected' }).waitFor();
+    await options.locator('#catalog-status', { hasText: 'Connected' }).waitFor();
     assert.deepEqual(perrs, []);
     await popup.close();
     await options.close();
@@ -243,7 +308,7 @@ try {
   results.push({ name: 'setup', ok: false });
 } finally {
   await context?.close();
-  server.kill();
+  for (const s of servers) s.kill();
   rmSync(tmp, { recursive: true, force: true });
 }
 
