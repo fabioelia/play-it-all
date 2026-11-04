@@ -211,23 +211,95 @@ try {
     await waitFor(async () => /4 cuts/.test(await badge()), { what: 'list removed' });
   });
 
+  // ---- flagging scenes on the player -------------------------------------------------
+  const overlayEl = (sel, o) => page.locator(`cleancut-overlay ${sel}`, o);
+  const localTags = () => worker.evaluate(() => chrome.storage.local.get('localTags').then((r) => r.localTags?.['web:demo-episode-1']?.segments || []));
+  const paused = () => page.evaluate(() => document.getElementById('v').paused);
+  const overVideo = async () => {
+    const v = await page.locator('#v').boundingBox();
+    await page.mouse.move(v.x + v.width / 3, v.y + v.height / 3);
+  };
+
+  await step('flagging by mouse: Flag → Done → category → Save applies at once, and Undo removes it', async () => {
+    await playFrom(33);
+    await overVideo();
+    await overlayEl('.flag-start').click();
+    await page.waitForTimeout(1500);
+    await overlayEl('.flag-done').click();
+    const picker = overlayEl('.picker');
+    await picker.waitFor();
+    assert.equal(await paused(), true, 'paused while picking');
+    assert.equal(await picker.locator('.save').isDisabled(), true, 'Save waits for a category');
+    await picker.getByRole('radio', { name: 'Nudity' }).click();
+    await picker.locator('.save').click();
+    const toast = overlayEl('.toast', { hasText: 'Flagged nudity (moderate)' });
+    await toast.waitFor();
+    await waitFor(async () => /5 cuts/.test(await badge()), { what: 'mouse flag in the plan' });
+    assert.equal(await paused(), false, 'playback resumes after saving');
+    const [seg] = await localTags();
+    assert.equal(seg.category, 'nudity');
+    assert.equal(seg.severity, 2);
+    assert.ok(seg.start >= 32 && seg.start <= 34 && seg.end - seg.start >= 1 && seg.end <= 38, JSON.stringify(seg));
+    await toast.locator('button', { hasText: 'Undo' }).click();
+    await waitFor(async () => /4 cuts/.test(await badge()), { what: 'Undo removes the flag from the plan' });
+    assert.deepEqual(await localTags(), []);
+  });
+
+  await step('"Last 10 s" opens the picker on what just played, nudges ±1 s, and Escape cancels', async () => {
+    await playFrom(12);
+    await page.waitForTimeout(1500);
+    await overVideo();
+    await overlayEl('.flag-last').click();
+    const picker = overlayEl('.picker');
+    await picker.waitFor();
+    const secs = async (sel) => {
+      const [m, s] = (await picker.locator(sel).textContent()).split(':').map(Number);
+      return m * 60 + s;
+    };
+    const end = await secs('.val.end');
+    const start = await secs('.val.start');
+    assert.ok(end >= 13 && end <= 15 && [10, 11].includes(end - start), `range ${start}–${end}`); // whole seconds, rounded outward
+    assert.equal(await picker.locator('.len').textContent(), `${end - start} s`);
+    const earlier = picker.getByRole('button', { name: 'Start 1 second earlier' });
+    await picker.getByRole('button', { name: 'End 1 second later' }).click();
+    for (let i = 0; i < start; i++) await earlier.click();
+    await waitFor(async () => (await secs('.val.start')) === 0 && (await secs('.val.end')) === end + 1, { what: 'nudged to 0:00–end+1' });
+    assert.equal(await earlier.isDisabled(), true, 'cannot start before 0:00');
+    await page.keyboard.press('Escape');
+    await picker.waitFor({ state: 'hidden' });
+    assert.equal(await paused(), false, 'playback resumes after cancelling');
+    await overlayEl('.flag-start').waitFor(); // back to the idle control
+    assert.deepEqual(await localTags(), []);
+  });
+
   await step('tagging with Alt+[ / Alt+] saves a local tag that is applied immediately', async () => {
     await playFrom(4);
     await page.waitForTimeout(400);
     await page.keyboard.press('Alt+BracketLeft');
+    await overlayEl('.dock.recording').waitFor(); // the recording pill shows without moving the mouse
     await page.waitForTimeout(1200);
     await page.keyboard.press('Alt+BracketRight');
-    const form = page.locator('cleancut-overlay .form');
-    await form.waitFor();
-    await form.locator('.chip', { hasText: 'Drugs & alcohol' }).click();
-    await form.locator('.chip', { hasText: 'strong' }).click();
-    await form.locator('.note').fill('e2e tag');
-    await form.locator('.save').click();
-    await page.locator('cleancut-overlay .toast', { hasText: 'Tag saved' }).waitFor();
+    const picker = overlayEl('.picker');
+    await picker.waitFor();
+    // From a shortcut, focus is in the categories: arrows pick, Tab moves on.
+    await waitFor(() => page.evaluate(() => document.querySelector('cleancut-overlay').shadowRoot.activeElement?.textContent === 'Nudity'), { what: 'focus on the first category' });
+    for (let i = 0; i < 5; i++) await page.keyboard.press('ArrowRight');
+    // DOM writes land in the next animation frame (slow in a headless, idle page).
+    await waitFor(async () => (await picker.getByRole('radio', { name: 'Drugs & alcohol' }).getAttribute('aria-checked')) === 'true', { what: 'arrows select Drugs & alcohol' });
+    await page.keyboard.press('Tab'); // severity (Moderate)
+    await page.keyboard.press('ArrowRight'); // Strong
+    await waitFor(async () => (await picker.getByRole('radio', { name: 'Strong' }).getAttribute('aria-checked')) === 'true', { what: 'Strong selected' });
+    await page.keyboard.press('Tab'); // + Add a note
+    await page.keyboard.press('Enter');
+    await picker.locator('.note').waitFor();
+    await page.keyboard.type('e2e tag');
+    await page.keyboard.press('Enter'); // Enter in the note saves
+    await overlayEl('.toast', { hasText: 'Flagged drugs & alcohol (strong)' }).waitFor();
     const tags = await worker.evaluate(() => chrome.storage.local.get('localTags').then((r) => r.localTags));
     const seg = tags['web:demo-episode-1'].segments[0];
     assert.equal(seg.category, 'drugs');
     assert.equal(seg.severity, 3);
+    assert.equal(seg.note, 'e2e tag');
     assert.ok(seg.start >= 3.5 && seg.end > seg.start, JSON.stringify(seg));
     await waitFor(async () => /5 cuts/.test(await badge()), { what: 'new tag in plan' });
   });
@@ -284,6 +356,25 @@ try {
     const seek = await waitFor(async () => (await autoSeeks()).find((x) => x.to >= 29.9), { what: 'synced skip past 0:30' });
     assert.ok(seek.from < 20.5 && seek.to < 31, JSON.stringify(seek));
     await useCatalog(BASE);
+  });
+
+  await step('the popup\'s openFlagger message shows the flag control, or says there is no video', async () => {
+    await openDemo();
+    await page.mouse.move(2, 2);
+    await overlayEl('.flag-start').waitFor({ state: 'hidden', timeout: 6000 });
+    const tabId = await worker.evaluate(async () => (await chrome.tabs.query({})).find((t) => /\/demo/.test(t.url || ''))?.id);
+    const send = (message) => worker.evaluate(([id, m]) => chrome.tabs.sendMessage(id, m), [tabId, message]);
+    assert.deepEqual(await send({ type: 'openFlagger' }), { ok: true });
+    await overlayEl('.flag-start').waitFor({ timeout: 2000 }); // shown without any mouse movement
+    await page.waitForTimeout(3000);
+    assert.equal(await overlayEl('.flag-start').isVisible(), true, 'stays up longer than a normal reveal');
+    await page.evaluate(() => document.getElementById('v').remove());
+    const res = await waitFor(async () => {
+      const r = await send({ type: 'openFlagger' });
+      return r?.error && r;
+    }, { what: 'openFlagger error without a video' });
+    assert.match(res.error, /no video/);
+    await openDemo();
   });
 
   await step('popup renders without errors', async () => {

@@ -10,6 +10,7 @@ import { alignCues, fingerprint } from '../../../shared/align.js';
 import { detectAdapter } from './adapters.js';
 import { createNetworkInspector } from './network.js';
 import { CATEGORY_COLORS, Overlay } from './overlay.js';
+import { Flagger, LAST_SECONDS } from './flagger.js';
 
 (() => {
   if (window.__cleancutContent) return;
@@ -126,6 +127,8 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
     blurred: false,
     lastSeek: null,
     markStart: null,
+    flag: null, // { phase: 'recording', start, shown } | { phase: 'picking' }
+    flagsSaved: 0,
     stats: { skips: 0, mutes: 0 },
   };
 
@@ -263,6 +266,7 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
     const key = state.key;
     if (!refresh) {
       restorePlayback();
+      cancelFlag();
       Object.assign(state, { remote: [], local: [], subtitle: [], subtitleInfo: null, profiles: [], episode: null, catalogKey: null, via: null, timing: null, alignment: null, disabled: new Set(), lastSeek: null, seekPending: false, markStart: null });
       const pending = state.pendingSubs.get(ident.platformId) || state.pendingSubs.get('__unassigned');
       if (pending) handleSubtitles(pending, true);
@@ -353,6 +357,7 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
 
   function attachVideo(video) {
     log('video', { found: !!video, path: location.pathname, readyState: video?.readyState, duration: video?.duration || null });
+    cancelFlag();
     restorePlayback();
     stopTicking();
     if (state.video) for (const [type, fn] of Object.entries(videoEvents)) state.video.removeEventListener(type, fn);
@@ -501,6 +506,7 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
   function tick(event) {
     try {
       tickOnce(event);
+      if (state.flag?.phase === 'recording') updateRecording();
     } catch (e) {
       logError('tick', e);
     }
@@ -584,13 +590,67 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
     }
   }
 
-  // ---- tagging ----------------------------------------------------------------------
+  // ---- flagging scenes -----------------------------------------------------------------
+  // On the player: "Flag scene" (Alt+[) starts recording at the current time,
+  // Done (Alt+[ again, or Alt+]) pauses and opens the picker; "Last 10 s"
+  // (Alt+] when not recording) flags what just happened. Escape cancels.
 
-  function markStart() {
-    if (!state.video) return { error: 'no video' };
-    state.markStart = adapter.currentTime(state.video);
-    overlay.toast(`Tag start at ${formatTime(state.markStart)} — press Alt+] at the end of the scene`, { color: '#4f7cff' });
+  const flagger = new Flagger(overlay, {
+    onStart: () => startFlag(),
+    onDone: () => finishFlag(),
+    onLast: () => flagLast(),
+    onCancel: () => cancelFlag(),
+  });
+
+  function startFlag() {
+    const video = state.video;
+    if (!video) return { error: 'no video' };
+    if (state.flag?.phase === 'picking') return { error: 'already picking' };
+    // Pressed again while recording (popup "Mark start"): start over from here.
+    state.markStart = adapter.currentTime(video);
+    state.flag = { phase: 'recording', start: state.markStart, shown: 0 };
+    flagger.record();
+    overlay.setPending(state.markStart, state.markStart, video.duration);
     return { ok: true, start: state.markStart };
+  }
+
+  /** While recording: keep the elapsed time and the timeline range current (once a second). */
+  function updateRecording() {
+    const video = state.video;
+    const flag = state.flag;
+    const t = adapter.currentTime(video);
+    const shown = Math.floor(Math.abs(t - flag.start));
+    if (shown === flag.shown) return;
+    flag.shown = shown;
+    flagger.setElapsed(shown);
+    overlay.setPending(Math.min(flag.start, t), Math.max(flag.start, t), video.duration);
+  }
+
+  /** @param {{ keyboard?: boolean }} [how] keyboard: from a shortcut (focus goes into the picker) */
+  function finishFlag(how) {
+    if (state.flag?.phase !== 'recording') return state.flag ? { error: 'already picking' } : flagLast(how);
+    let start = state.flag.start;
+    let end = adapter.currentTime(state.video);
+    if (end < start) [start, end] = [end, start]; // sought back past the start
+    return pickAndSave(start, end, how);
+  }
+
+  function flagLast(how) {
+    const video = state.video;
+    if (!video) return { error: 'no video' };
+    if (state.flag) return { error: 'already flagging' };
+    const end = adapter.currentTime(video);
+    return pickAndSave(Math.max(0, end - LAST_SECONDS), end, how);
+  }
+
+  function cancelFlag() {
+    if (!state.flag) return;
+    const picking = state.flag.phase === 'picking';
+    state.flag = null;
+    state.markStart = null;
+    overlay.setPending(null);
+    if (picking) flagger.finish(null); // pickAndSave carries on: resumes playback
+    else flagger.idle();
   }
 
   /** The title as the catalog wants it in a submission. */
@@ -607,47 +667,112 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
     };
   }
 
-  async function markEnd() {
+  /** Pause, let the viewer adjust the range and say what is in it, then save the tag. */
+  async function pickAndSave(start, end, { keyboard = false } = {}) {
     const video = state.video;
-    if (!video || !state.ident) return { error: 'no video' };
-    if (state.markStart == null) {
-      overlay.toast('Press Alt+[ at the start of the scene first');
-      return { error: 'no start mark' };
+    if (!video) return { error: 'no video' };
+    const key = state.key;
+    const duration = video.duration;
+    const max = Number.isFinite(duration) && duration > 0 ? duration : Infinity;
+    // Whole seconds, rounded outward: what the picker shows is exactly what is
+    // saved, and a cut that is a little long beats one that is a little short.
+    start = Math.max(0, Math.floor(start));
+    end = Math.min(Math.ceil(end), max);
+    if (end - start < 1) {
+      if (start + 1 <= max) end = start + 1;
+      else start = Math.max(0, end - 1);
     }
-    let start = state.markStart;
-    let end = adapter.currentTime(video);
-    if (end < start) [start, end] = [end, start];
-    if (end - start < 0.5) end = start + 0.5;
+    state.flag = { phase: 'picking' };
     state.markStart = null;
     const wasPlaying = !video.paused;
-    video.pause();
-    const answer = await overlay.openTagForm({ start, end });
-    if (wasPlaying) video.play().catch(() => {});
+    if (wasPlaying) video.pause();
+    overlay.setPending(start, end, duration);
+    const answer = await flagger.pick({ start, end, duration, keyboard, onRange: (s, e) => overlay.setPending(s, e, duration) });
+    if (state.flag?.phase === 'picking') state.flag = null;
+    overlay.setPending(null);
+    if (wasPlaying && state.video === video) video.play().catch(() => {});
     if (!answer) return { cancelled: true };
+    if (!state.ident || state.key !== key) {
+      overlay.toast('CleanCut has not recognised this title yet, so the flag was not saved. Try again in a moment.', { color: '#e53935' });
+      return { error: 'title not identified' };
+    }
     const res = await bg({
       type: 'saveTag',
       title: submissionTitle(),
-      segment: { start, end, category: answer.category, severity: answer.severity, note: answer.note },
+      segment: { start: answer.start, end: answer.end, category: answer.category, severity: answer.severity, note: answer.note },
     });
-    if (res?.segment) {
-      state.local.push(res.segment);
+    if (!res?.segment) {
+      overlay.toast(`Could not save the flag: ${res?.error || 'unknown error'}`, { color: '#e53935' });
+      return res;
+    }
+    const seg = res.segment;
+    if (state.key === key) {
+      state.local.push(seg);
       replan();
-      overlay.toast('Tag saved. Share your tags on GitHub from the CleanCut popup when you are done.', { color: '#7cb342' });
-    } else overlay.toast(`Could not save tag: ${res?.error || 'unknown error'}`, { color: '#e53935' });
+      // Playback resumed where it paused, at the very end of the new cut: do
+      // not jump its last second with a "Skipped 0:00" toast.
+      const t = adapter.currentTime(video);
+      const d = decide(t, state.plan.actions, { disabled: state.disabled });
+      if (d.skipTo !== null && d.skipTo - t < 2) {
+        state.lastSeek = { target: Number.isFinite(duration) ? Math.min(d.skipTo, duration - 0.25) : d.skipTo, at: performance.now() };
+      }
+    }
+    state.flagsSaved++;
+    overlay.toast(`Flagged ${label(seg.category).toLowerCase()} (${SEVERITIES[seg.severity]})`, {
+      color: CATEGORY_COLORS[seg.category],
+      detail: `${formatTime(seg.start)}–${formatTime(seg.end)} · ${flagEffect(seg)}${state.flagsSaved === 1 ? ' · share it from the CleanCut menu' : ''}`,
+      actionLabel: 'Undo',
+      onAction: () => unflag(seg, key),
+      ms: 8000,
+    });
     return res;
   }
 
-  document.addEventListener('keydown', (e) => {
-    if (!e.altKey || e.ctrlKey || e.metaKey) return;
-    if (e.code === 'BracketLeft') {
-      e.preventDefault();
-      e.stopPropagation();
-      markStart();
-    } else if (e.code === 'BracketRight') {
-      e.preventDefault();
-      e.stopPropagation();
-      markEnd();
+  /** What the new tag does at the current rating, in a few words. */
+  const DONE_TO = { skip: 'skipped', mute: 'muted', blur: 'picture hidden' };
+  function flagEffect(seg) {
+    if (!state.settings.enabled) return 'saved; CleanCut is off';
+    const f = state.plan?.flagged.find((x) => x.id === seg.id);
+    const rating = activeList()?.name || describeProfile(effectiveProfile());
+    return f?.decision === 'filter' ? `${DONE_TO[f.action] || 'cut'} at ${rating}` : `still plays at ${rating}`;
+  }
+
+  async function unflag(seg, key) {
+    const res = await bg({ type: 'deleteTag', titleKey: key, id: seg.id });
+    if (state.key === key) {
+      state.local = state.local.filter((l) => l.id !== seg.id);
+      replan();
     }
+    if (res?.error) overlay.toast(`Could not remove the flag: ${res.error}`, { color: '#e53935' });
+    else overlay.toast('Flag removed', { color: '#888', ms: 2500 });
+  }
+
+  /** The popup's "Flag a scene": show the control on the player, ready to start. */
+  function openFlagger() {
+    const video = state.video;
+    if (!video?.isConnected) return { error: 'no video playing' };
+    overlay.attach();
+    flagger.invite();
+    return { ok: true };
+  }
+
+  // Shortcuts: only Alt+[ and Alt+], and Escape while a flag is in progress.
+  // The site's own keys (space, f, m, arrows, Escape otherwise) are never taken.
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && state.flag && !e.altKey && !e.ctrlKey && !e.metaKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      cancelFlag();
+      return;
+    }
+    if (!e.altKey || e.ctrlKey || e.metaKey) return;
+    if (e.code !== 'BracketLeft' && e.code !== 'BracketRight') return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.repeat || state.flag?.phase === 'picking') return;
+    if (state.flag) finishFlag({ keyboard: true }); // either key ends a recording
+    else if (e.code === 'BracketLeft') startFlag();
+    else flagLast({ keyboard: true });
   }, true);
 
   // ---- popup / background messages ------------------------------------------------------
@@ -695,6 +820,7 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
       activeList: list ? { id: list.id, name: list.name, scope: list.scope } : null,
       profileLabel: list ? list.name : describeProfile(effectiveProfile()),
       markStart: state.markStart,
+      flagging: state.flag?.phase || null,
       stats: state.stats,
     };
   }
@@ -746,10 +872,12 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
           if (state.disabled.has(msg.key)) state.disabled.delete(msg.key);
           else state.disabled.add(msg.key);
           return snapshot();
+        case 'openFlagger':
+          return openFlagger();
         case 'markStart':
-          return markStart();
+          return startFlag();
         case 'markEnd':
-          markEnd();
+          finishFlag();
           return { ok: true };
         case 'share': {
           if (!state.ident) return { error: 'nothing playing' };
