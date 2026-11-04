@@ -93,6 +93,13 @@ has offset 0 and speed 1.
 Each segment says which service it was timed **on**. A tag timed on Prime
 plays on Netflix as soon as both clocks are known, and vice versa.
 
+Service names are the platform ids in
+[`shared/platforms.js`](shared/platforms.js): `netflix`, `prime`,
+`youtube`, `disney`, `max`, `hulu`, `appletv`, `paramount`, `peacock`,
+`crunchyroll`, `tubi`, `pluto`, `roku`, `plex`, `vimeo`, and `web` for any
+other site. Each entry there also shows what that service's video id looks
+like (a YouTube video id, a Disney+ `/play/` id, and so on).
+
 ### Syncing a new service automatically
 
 `sync.cues` is a fingerprint of the episode's timing: subtitle cue start

@@ -1,7 +1,9 @@
 # CleanCut
 
 **Watch any show at the rating you choose.** CleanCut is a browser extension
-that runs on top of Netflix and Prime Video (and any page with a `<video>`).
+that runs on top of Netflix, Prime Video, YouTube, Disney+, HBO Max, Hulu,
+Apple TV, Paramount+, Peacock, Crunchyroll, Tubi, Pluto TV, The Roku Channel,
+Plex and Vimeo (and any page with a `<video>`; see [Supported sites](#supported-sites)).
 It recognizes what's playing, looks up timestamped content tags, and **skips,
 mutes or hides the picture of** the scenes above your chosen rating. Take *Game of Thrones*
 and watch an R, PG-13, PG or G cut of it.
@@ -43,8 +45,10 @@ presets, the decision engine, subtitle parsing and the subtitle analyzer.
 
 1. **Identify.** Each platform adapter works out what is playing. Netflix uses
    the `/watch/<id>` URL plus the player's metadata response, Prime uses the
-   episode ASIN from its playback-resources response, and other sites use
-   `<meta name="cleancut:*">` tags or the URL. Each title also gets a
+   episode ASIN from its playback-resources response, YouTube the video id
+   plus the player response (title, channel), the other services the id in
+   their watch-page address plus the player's markup or the page's JSON-LD,
+   and any other site `<meta name="cleancut:*">` tags or the URL. Each title also gets a
    *canonical key* (`game-of-thrones/s01e01`), so tags made on one platform
    can be offered on another.
 2. **Gather segments** from three sources:
@@ -86,7 +90,10 @@ scans in two places:
 
 - **In the browser: the subtitle track.** Netflix and Prime download the full
   subtitle file at playback start. The page hook reads the track list from the
-  player's own JSON, fetches the English SDH track, and the analyzer
+  player's own JSON (YouTube's player response, Vimeo's player config, Hulu's
+  playlist, Crunchyroll's play service, Tubi's content API, Plex's library
+  metadata, or the subtitle renditions an HLS or DASH manifest lists), fetches
+  the English SDH track, and the analyzer
   ([`shared/analyzer.js`](shared/analyzer.js)) processes the whole episode in
   milliseconds:
   - *Profanity* in dialogue becomes precise mute segments, by line or by
@@ -221,9 +228,20 @@ They also need `ffmpeg` to generate their test videos (`brew install ffmpeg`
 on macOS).
 
 ```bash
-npm test            # 27 unit + API + scanner tests (node:test)
-npm run test:e2e    # loads the built extension in headless Chromium against the demo
+npm test                  # unit + API + scanner tests (node:test)
+npm run test:e2e          # loads the built extension in headless Chromium against the demo
+npm run test:e2e:youtube  # the YouTube adapter in the extension, on fixtures of YouTube's pages
+npm run test:adapters     # every streaming adapter on a fixture at its site's real address
+npm run test:live:youtube # the real youtube.com (network needed; exit 2 if YouTube refuses the browser)
+npm run test:live:vimeo   # the real Vimeo embedded player (network needed)
 ```
+
+The live checks go through `HTTPS_PROXY` when it is set. YouTube shows a
+"confirm you're not a bot" page or Google's "unusual traffic" page to some
+networks (data centres, shared proxies); the live script then stops and says
+so rather than trying to get past it. Playwright's Chromium cannot decode
+H.264, which is all Vimeo serves, so the Vimeo check covers identification,
+scan-ahead and the overlay but cannot play the video to test a skip.
 
 `npm run bench` measures the extension's cost on a simulated Netflix watch page.
 It serves a fake `www.netflix.com` locally with Netflix-like traffic, then
@@ -266,9 +284,43 @@ The end-to-end test plays the demo episode and checks:
 
 ---
 
+## Supported sites
+
+Each service is one entry in [`shared/platforms.js`](shared/platforms.js)
+(its id, name, hosts, match patterns and how to read a title id from a
+watch-page address) plus, for the player, a few lines of config in
+[`extension/src/content/adapters/`](extension/src/content/adapters).
+
+| Service | Status | Identify | Skip | Ads | Scan-ahead subtitles |
+| --- | --- | --- | --- | --- | --- |
+| Netflix | unverified (needs an account) | id + metadata | player API, else cover | not detected | decrypted manifest |
+| Prime Video | unverified (needs an account) | ASIN + metadata | currentTime | stream offset recalibrated | playback resources |
+| YouTube | fixture-verified; live blocked here | id + player response | currentTime | `.ad-showing`: does nothing | caption tracks (json3); else the player's own request once CC is on |
+| Vimeo | verified live (embed) | id + player config | currentTime | none | text tracks (VTT) |
+| Disney+ | unverified | id + title bug | currentTime | ad badge | HLS WebVTT |
+| HBO Max | unverified | id + player-ux | cover | ad badge | HLS/DASH sidecar |
+| Hulu | unverified | id + metadata | cover | ad unit | playlist WebVTT/TTML |
+| Apple TV | unverified | id + title | cover | none | HLS WebVTT |
+| Paramount+ | unverified | id + title | currentTime | ad countdown | HLS/DASH |
+| Peacock | unverified | id + header | cover | ad countdown | HLS/DASH |
+| Crunchyroll | unverified | id + JSON-LD | cover | ad countdown | ASS / CC from the play service |
+| Tubi | unverified | id + JSON-LD | currentTime | ad countdown | .srt from the content API |
+| Pluto TV | unverified | id (on demand) | currentTime | ad marker | HLS WebVTT |
+| The Roku Channel | unverified | id + title | cover | ad countdown | HLS/DASH |
+| Plex | unverified | id + library metadata | cover | not detected | sidecar subtitle streams |
+
+*Cover* means CleanCut mutes and hides the picture for a skip region instead
+of seeking, because it is not known that the player tolerates
+`video.currentTime` being set (as with Netflix, where it crashes the player).
+On services whose ads are stitched into the stream (Disney+, Hulu, Peacock,
+Paramount+, Pluto TV and the ad tiers of others), the stream clock runs ahead
+of the episode's after every ad break; catalog tags and scan-ahead segments
+then land late by the ads' length. YouTube Shorts are out of scope: looping
+clips in a swipe feed, rarely captioned, never in the catalog.
+
 ## Limits and honest caveats
 
-- **Not tested against live Netflix or Prime Video.** That needs real
+- **Not tested against live Netflix, Prime Video or the other subscription services.** That needs real
   accounts. The adapters follow the players' current DOM and JSON shapes,
   which change without notice. Every extractor is defensive, and the code
   marks each place that depends on site internals. Expect to maintain
@@ -312,7 +364,8 @@ The end-to-end test plays the demo episode and checks:
 - A hosted server with moderation, reputation-weighted votes and duplicate-tag
   clustering.
 - In-browser frame models (onnxruntime-web) for non-DRM sites.
-- Adapters for Disney+, Max and Hulu.
+- Live verification of the subscription services' adapters, and mapping the
+  stream clock to the episode's around stitched-in ads.
 - Shareable skip-list links, and following people whose lists you like.
 - Non-English lexicons.
 
