@@ -34,6 +34,37 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
     }
   }
 
+  // ---- debug log (Popup → "Record a debug log") ------------------------------
+  // Steps, ids and counts only: no subtitle text, no URLs with tokens.
+  const dlog = [];
+  let debugOn = false;
+  let dlogDropped = 0;
+  function log(ev, data = {}) {
+    if (!debugOn) return;
+    if (dlog.length >= 800) {
+      dlogDropped++;
+      return;
+    }
+    dlog.push({ t: Math.round(performance.now()), ev, ...data });
+  }
+  const errorsSeen = new Map();
+  function logError(where, e) {
+    const key = `${where}: ${e?.message || e}`;
+    const n = (errorsSeen.get(key) || 0) + 1;
+    errorsSeen.set(key, n);
+    if (n <= 3) log('error', { where, message: String(e?.message || e).slice(0, 300), stack: String(e?.stack || '').split('\n').slice(0, 4).join(' | ').slice(0, 500) });
+  }
+  function applyDebug(on) {
+    debugOn = !!on;
+    try {
+      // Read by the page hook at document_start of the next load.
+      if (debugOn) localStorage.setItem('cleancut:debug', '1');
+      else localStorage.removeItem('cleancut:debug');
+    } catch { /* storage blocked */ }
+    log('debug-on', { path: location.pathname, build: __CLEANCUT_BUILD__ });
+  }
+  if (alive()) chrome.storage.local.get('debug').then(({ debug }) => applyDebug(debug), () => {});
+
   // The page hook (page world) talks to us over a private MessageChannel; see
   // connectHook below. Netflix seeks go through it to the player's own API.
   let hookPort = null;
@@ -55,6 +86,13 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
 
   const adapter = detectAdapter(bridge);
   const overlay = new Overlay({ fillViewport: !!adapter.fillsViewport });
+  {
+    const toast = overlay.toast.bind(overlay);
+    overlay.toast = (text, o) => {
+      log('toast', { text: String(text).slice(0, 160) });
+      return toast(text, o);
+    };
+  }
 
   // ---- state ---------------------------------------------------------------
 
@@ -151,6 +189,7 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
     const key = state.key;
     const mode = effectiveProfile().languageMode;
     const r = await bg({ type: 'scanSubtitles', ...source, languageMode: mode });
+    log('scan', { ok: !!r?.ok, error: r?.error || null, cues: r?.count ?? null, segments: r?.segments?.length ?? null, sameTitle: state.key === key });
     if (!r?.ok || state.key !== key) return false;
     if (state.subtitleInfo?.sdh && !(sdh || r.sdh)) return false; // keep the richer SDH track
     state.subtitleInfo = { source, url, sdh: sdh || r.sdh, count: r.count, cueStarts: r.cueStarts, mode };
@@ -242,6 +281,7 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
     state.profiles = res?.lists || [];
     state.online = !!res?.online;
     state.lookupError = res?.error || null;
+    log('catalog', { found: !!state.episode, key: state.catalogKey, via: state.via, local: state.local.length, error: state.lookupError });
     computeRemote();
     replan();
     if (refresh) return;
@@ -257,6 +297,13 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
   // Runs once a second. Until a player shows up (browse and title pages) this
   // is all CleanCut does on the page: no overlay element, no playback loop.
   function identify() {
+    try {
+      identifyOnce();
+    } catch (e) {
+      logError('identify', e);
+    }
+  }
+  function identifyOnce() {
     if (!alive()) return shutdown(); // extension reloaded or disabled: stop for good
     const video = adapter.findVideo();
     if (video !== state.video) attachVideo(video);
@@ -267,6 +314,7 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
     if (!ident) return;
     const key = titleKey(ident.platform, ident.platformId);
     if (key !== state.key) {
+      log('title', { platformId: ident.platformId, meta: ident.meta ? Object.keys(ident.meta).join(',') : null, canonicalKey: ident.canonicalKey });
       loadTitle(ident);
     } else if (ident.canonicalKey && !state.ident.canonicalKey) {
       // Metadata arrived after the first lookup: retry so cross-platform tags can be found.
@@ -304,6 +352,7 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
   };
 
   function attachVideo(video) {
+    log('video', { found: !!video, path: location.pathname, readyState: video?.readyState, duration: video?.duration || null });
     restorePlayback();
     stopTicking();
     if (state.video) for (const [type, fn] of Object.entries(videoEvents)) state.video.removeEventListener(type, fn);
@@ -322,6 +371,7 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
 
   function handleSubtitles(payload, force = false) {
     const { text, forId, sdh, url } = payload;
+    log('subtitles', { forId, playing: state.ident?.platformId ?? null, sdh: !!sdh, chars: text?.length || 0, force, passive: !!payload.passive });
     if (!force && !state.ident) {
       state.pendingSubs.set(forId || '__unassigned', payload);
       return;
@@ -364,11 +414,25 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
       askedForSubtitles.add(payload.forId);
       overlay.toast('To scan ahead, turn on English subtitles [CC] once for this episode. You can turn them off again right after.', { ms: 9000, color: '#f9a825' });
     } else adapter.onPageMessage(type, payload);
-  }, { pageFetch });
+  }, { pageFetch, log });
 
   function onHookMessage({ type, payload } = {}) {
     if (type === 'response' && payload) inspector.handle(payload);
-    else if (type === 'tracks' && payload) inspector.tracks(payload);
+    else if (type === 'tracks' && payload) {
+      log('tracks-from-page', { movieId: payload.movieId, via: payload.via, links: payload.tracks?.length || 0, english: payload.available, withoutLinks: payload.dehydrated, formats: [...new Set((payload.tracks || []).map((t) => t.format))] });
+      inspector.tracks(payload);
+    } else if (type === 'debug' && payload) {
+      if (debugOn) {
+        if (dlog.length < 800) dlog.push({ ...payload, src: 'page' });
+        else dlogDropped++;
+      }
+    } else if (type === 'debug-dump') {
+      const resolve = pendingFetches.get(`dump${payload?.reqId}`);
+      if (resolve) {
+        pendingFetches.delete(`dump${payload.reqId}`);
+        resolve(payload);
+      }
+    }
     else if (type === 'fetch-result') {
       const resolve = pendingFetches.get(payload?.reqId);
       if (resolve) {
@@ -395,10 +459,14 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
       window.removeEventListener('message', onPort);
       hookPort = e.ports[0];
       hookPort.onmessage = (m) => onHookMessage(m.data);
+      log('hook-connected');
     };
     window.addEventListener('message', onPort);
     document.dispatchEvent(new CustomEvent('cleancut:connect'));
-    setTimeout(() => window.removeEventListener('message', onPort), 5000); // no hook on this page
+    setTimeout(() => {
+      window.removeEventListener('message', onPort);
+      if (!hookPort) log('hook-missing', { note: 'no answer from the page hook within 5 s' });
+    }, 5000); // no hook on this page
   }
   connectHook();
 
@@ -431,6 +499,13 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
 
   // Runs every 100 ms while playing, and on every seek (event argument).
   function tick(event) {
+    try {
+      tickOnce(event);
+    } catch (e) {
+      logError('tick', e);
+    }
+  }
+  function tickOnce(event) {
     const video = state.video;
     if (!video || !state.plan || !state.settings.enabled || !video.isConnected || video.readyState === 0) {
       if (!state.settings.enabled) restorePlayback();
@@ -629,6 +704,35 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
       switch (msg?.type) {
         case 'getState':
           return snapshot();
+        case 'getDebugLog': {
+          let page = null;
+          if (hookPort) {
+            const reqId = ++fetchSeq;
+            page = await new Promise((resolve) => {
+              pendingFetches.set(`dump${reqId}`, resolve);
+              hookPort.postMessage({ type: 'debug-dump', reqId });
+              setTimeout(() => {
+                if (pendingFetches.delete(`dump${reqId}`)) resolve({ error: 'page hook did not answer' });
+              }, 1500);
+            });
+          }
+          const snap = snapshot();
+          return {
+            cleancut: __CLEANCUT_BUILD__,
+            recorded: new Date().toISOString(),
+            browser: navigator.userAgent,
+            path: location.pathname,
+            recording: debugOn,
+            hookConnected: !!hookPort,
+            settings: { enabled: state.settings.enabled, profile: snap.profileLabel, languageMode: effectiveProfile().languageMode },
+            state: { platform: snap.platform, hasVideo: snap.hasVideo, ident: state.ident ? { platformId: state.ident.platformId, canonicalKey: state.ident.canonicalKey } : null,
+              title: snap.title, duration: snap.duration, catalog: snap.catalog, counts: snap.counts, subtitle: snap.subtitle, cuts: snap.actions.length, diag: snap.diag },
+            errors: [...errorsSeen].map(([k, n]) => ({ error: k, times: n })),
+            events: dlog,
+            eventsDropped: dlogDropped,
+            page,
+          };
+        }
         case 'setOffset': {
           state.offset = Math.round(Number(msg.value) * 10) / 10 || 0;
           const { offsets = {} } = await chrome.storage.local.get('offsets');
@@ -672,6 +776,7 @@ import { CATEGORY_COLORS, Overlay } from './overlay.js';
 
   if (alive()) {
     chrome.storage.onChanged.addListener(async (changes) => {
+      if (changes.debug) applyDebug(changes.debug.newValue);
       if (changes.settings || changes.activeLists) {
         await loadSettings();
         analyzeSubtitles();

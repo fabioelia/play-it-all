@@ -293,10 +293,46 @@ async function refreshPage() {
   renderPage();
 }
 
+// ---- debug log ------------------------------------------------------------------------
+
+async function bindDebug() {
+  const { debug } = await chrome.storage.local.get('debug');
+  const show = (on) => {
+    $('debug-rec').checked = on;
+    $('debug-save').hidden = !on;
+  };
+  show(!!debug);
+  if (debug) $('debug-note').textContent = 'Recording. Save after playing an episode for about 30 seconds.';
+  $('debug-rec').addEventListener('change', async (e) => {
+    const on = e.target.checked;
+    await chrome.storage.local.set({ debug: on });
+    show(on);
+    $('debug-note').textContent = on
+      ? 'Now reload the Netflix tab, play an episode for about 30 seconds (try turning English [CC] on), then come back and Save.'
+      : 'Recording off.';
+  });
+  $('debug-save').addEventListener('click', async () => {
+    const log = await toContent({ type: 'getDebugLog' });
+    if (!log || log.error) {
+      $('debug-note').textContent = `No log from this tab${log?.error ? ` (${log.error})` : ''}. Open the Netflix tab first, then reload it.`;
+      return;
+    }
+    const name = `cleancut-debug-${new Date().toISOString().replace(/[:T]/g, '-').slice(0, 16)}.json`;
+    const url = URL.createObjectURL(new Blob([JSON.stringify(log, null, 1)], { type: 'application/json' }));
+    const a = Object.assign(document.createElement('a'), { href: url, download: name });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 10_000);
+    $('debug-note').textContent = `Saved ${name} (${log.events?.length || 0} events) to your Downloads. Send it over.`;
+  });
+}
+
 // ---- wiring --------------------------------------------------------------------------
 
 async function main() {
   $('build').textContent = `Build ${__CLEANCUT_BUILD__}`;
+  bindDebug();
   // popup.html?tab=<id> targets a specific tab (handy for testing the popup in a normal tab).
   const forced = Number(new URLSearchParams(location.search).get('tab'));
   tab = forced ? await chrome.tabs.get(forced) : (await chrome.tabs.query({ active: true, currentWindow: true }))[0];

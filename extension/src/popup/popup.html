@@ -71,7 +71,12 @@
     <button id="publish" class="link">Share my settings as a skip list…</button>
     <button id="options" class="link">Options</button>
   </footer>
-  <div class="small muted" id="build" style="padding: 0 14px 10px"></div>
+  <div class="small muted" id="build" style="padding: 0 14px 4px"></div>
+  <div class="small" id="debug" style="padding: 0 14px 12px">
+    <label class="check"><input type="checkbox" id="debug-rec"> Record a debug log</label>
+    <button id="debug-save" class="link" hidden>Save debug log</button>
+    <div class="small muted" id="debug-note"></div>
+  </div>
 
   <dialog id="publish-dialog">
     <form method="dialog">

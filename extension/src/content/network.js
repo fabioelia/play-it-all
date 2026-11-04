@@ -27,7 +27,7 @@ const MAX_TITLES = 32; // track lists remembered (URLs only), oldest dropped
  * @param {{ pageFetch?: (url: string) => Promise<{ok:boolean,status:number,text?:string,error?:string}> }} [o]
  *   pageFetch: download through the page itself, if the content script is refused
  */
-export function createNetworkInspector(emit, { pageFetch } = {}) {
+export function createNetworkInspector(emit, { pageFetch, log = () => {} } = {}) {
   const isNetflix = /(^|\.)netflix\.com$/.test(location.hostname);
   const seen = new Set(); // subtitle URLs already handed over
   const queued = []; // forwarded bodies not parsed yet
@@ -52,6 +52,8 @@ export function createNetworkInspector(emit, { pageFetch } = {}) {
       if (seen.has(url) || downloading.has(url)) return;
       downloading.add(url);
       const extra = { forId, sdh: track.sdh, language: track.language };
+      const host = (() => { try { return new URL(url).hostname; } catch { return '?'; } })();
+      log('download', { forId, format: track.format, host });
       try {
         let text = null;
         try {
@@ -61,13 +63,16 @@ export function createNetworkInspector(emit, { pageFetch } = {}) {
         } catch (e) {
           diag.download = `blocked (${e?.message || e})`;
         }
+        if (text == null) log('download-failed', { forId, host, why: diag.download });
         if (text == null && pageFetch) {
           // Same request from the page, as the player makes it.
           const r = await pageFetch(url);
+          log('page-download', { forId, ok: !!r?.ok, status: r?.status ?? null, error: r?.error || null });
           if (r?.ok) text = r.text;
           else diag.download = `refused (${r?.status ? `HTTP ${r.status}` : r?.error || 'no answer'}), also from the page`;
         }
         if (text != null) {
+          log('downloaded', { forId, format: track.format, chars: text.length, looksLikeSubtitle: looksLikeSubtitle(text), head: text.slice(0, 40).replace(/\s+/g, ' ') });
           if (subtitles(url, text, extra)) {
             diag.download = `ok (${track.format || 'subtitles'}, ${Math.round(text.length / 1024)} KB)`;
             return;
@@ -92,6 +97,7 @@ export function createNetworkInspector(emit, { pageFetch } = {}) {
 
   /** A Netflix manifest's subtitle summary (from the network or the decrypted copy). */
   function manifest({ movieId, tracks, available, dehydrated }, via) {
+    log('manifest', { via, movieId, playing: wanted, english: available, withoutLinks: dehydrated, links: tracks?.length || 0 });
     diag.manifests++;
     if (via === 'decrypted') diag.decrypted++;
     const key = movieId || '';
@@ -102,6 +108,7 @@ export function createNetworkInspector(emit, { pageFetch } = {}) {
   }
 
   function inspectJson(url, json) {
+    log('response', { path: (() => { try { return new URL(url, location.href).pathname; } catch { return '?'; } })(), keys: Object.keys(json).slice(0, 20) });
     if (isNetflix) {
       const meta = extractNetflixMetadata(json);
       if (Object.keys(meta).length) emit('netflix-metadata', meta);
@@ -189,6 +196,7 @@ export function createNetworkInspector(emit, { pageFetch } = {}) {
       if (next === wanted) return; // called every second; tracks that arrive later are fetched by remember()
       wanted = next;
       diag.download = null;
+      log('want', { id: wanted, known: [...tracksFor.keys()].slice(-12), withLinks: !!(wanted && tracksFor.get(wanted)) });
       const tracks = (wanted && tracksFor.get(wanted)) || tracksFor.get('');
       if (wanted && tracks) fetchSubtitle(tracks, tracksFor.has(wanted) ? wanted : null);
       else if (wanted && infoFor.get(wanted)?.dehydrated) emit('needs-subtitles', { forId: wanted });

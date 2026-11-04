@@ -44,6 +44,68 @@ import { MAX_INSPECT_BYTES, classifyResponse, mayMatter, netflixManifestInfo } f
   };
   const forward = (url, kind, body) => send({ type: 'response', payload: { url, kind, body } });
 
+  // ---- debug log (off unless the viewer turned it on in the popup) ----------
+  // Records what the player does, as shapes and counts only: field names of
+  // parsed responses, hosts and paths of requests (never query strings,
+  // cookies or bodies). The flag is read from the page's localStorage, which
+  // the content script sets, so it is known before the player starts.
+  let DEBUG = false;
+  try {
+    DEBUG = window.localStorage.getItem('cleancut:debug') === '1';
+  } catch { /* storage blocked */ }
+  const debugBacklog = [];
+  const dbg = (entry) => {
+    if (!DEBUG) return;
+    const msg = { type: 'debug', payload: { t: Math.round(performance.now()), ...entry } };
+    if (port) return port.postMessage(msg);
+    if (debugBacklog.length < 400) debugBacklog.push(msg);
+  };
+  const strip = (u) => {
+    try {
+      const x = new URL(String(u), location.href);
+      return `${x.protocol === 'wss:' || x.protocol === 'ws:' ? x.protocol : ''}${x.hostname}${x.pathname}`;
+    } catch {
+      return String(u).split('?')[0].slice(0, 200);
+    }
+  };
+  const net = new Map(); // "via method host/path" → { n, bytes, types, statuses }
+  function netNote(via, method, url, status, type, bytes, extra) {
+    if (!DEBUG) return;
+    const key = `${via} ${method || 'GET'} ${strip(url).replace(/\d{3,}/g, '#')}`;
+    const e = net.get(key) || { n: 0, bytes: 0, types: new Set(), statuses: new Set() };
+    e.n++;
+    e.bytes += bytes || 0;
+    if (type) e.types.add(type);
+    if (status != null) e.statuses.add(status);
+    net.set(key, e);
+    if (extra) dbg({ ev: 'net-text', via, url: strip(url), status, type, bytes, ...extra });
+  }
+  const TEXTY = /ttml|vtt|dfxp|(application|text)\/xml|text\/plain/i;
+  const INTEREST = /texttrack|audio_?tracks|video_?tracks|manifest|movieid|viewableid|timedtext|subtitle|downloadable/i;
+  let shapes = 0;
+  function shapeOf(v) {
+    const r = v.result !== null && typeof v.result === 'object' && !Array.isArray(v.result) ? v.result : null;
+    const top = Object.keys(v);
+    const inner = r ? Object.keys(r) : [];
+    if (!top.some((k) => INTEREST.test(k)) && !inner.some((k) => INTEREST.test(k))) return null;
+    const m = r || v;
+    const arrays = {};
+    for (const k of Object.keys(m)) {
+      if (!/tracks$/i.test(k) || !Array.isArray(m[k])) continue;
+      const a = m[k];
+      arrays[k] = { n: a.length, first: a[0] && typeof a[0] === 'object' ? Object.keys(a[0]).slice(0, 40) : typeof a[0] };
+      if (/text/i.test(k)) {
+        arrays[k].tracks = a.slice(0, 40).map((t) => {
+          if (!t || typeof t !== 'object') return String(t);
+          const d = t.ttDownloadables || t.downloadables || {};
+          const links = Object.values(d).reduce((n, x) => n + ((x && Array.isArray(x.urls) && x.urls.length) || (x && x.downloadUrls ? Object.keys(x.downloadUrls).length : 0)), 0);
+          return `${t.language}|${t.trackType || ''}|${t.rawTrackType || ''}|hydrated:${t.hydrated}|none:${!!t.isNoneTrack}|${Object.keys(d).join('+')}|links:${links}`;
+        });
+      }
+    }
+    return { top: top.slice(0, 30), result: inner.slice(0, 60), movieId: m.movieId ?? m.viewableId ?? null, version: m.manifestVersion ?? v.version ?? null, arrays };
+  }
+
   // ---- Netflix: subtitle tracks from the decrypted manifest -----------------
   // The player fetches manifests over MSL (encrypted, often over a WebSocket),
   // so they are unreadable on the network. It decrypts them and parses the
@@ -56,6 +118,13 @@ import { MAX_INSPECT_BYTES, classifyResponse, mayMatter, netflixManifestInfo } f
     JSON.parse = function parse(text, reviver) {
       const value = origParse.apply(JSON, arguments);
       try {
+        if (DEBUG && value !== null && typeof value === 'object' && shapes < 80) {
+          const shape = shapeOf(value);
+          if (shape) {
+            shapes++;
+            dbg({ ev: 'parse', bytes: typeof text === 'string' ? text.length : null, ...shape });
+          }
+        }
         if (value !== null && typeof value === 'object') {
           const m = value.result !== null && typeof value.result === 'object' ? value.result : value;
           if (m.movieId != null && (Array.isArray(m.timedtexttracks) || Array.isArray(m.textTracks))) {
@@ -75,6 +144,14 @@ import { MAX_INSPECT_BYTES, classifyResponse, mayMatter, netflixManifestInfo } f
       url = typeof input === 'string' ? input : input?.url || String(input);
     } catch {
       return pending;
+    }
+    if (DEBUG) {
+      const method = init?.method || input?.method || 'GET';
+      pending.then((res) => {
+        const type = res.headers.get('content-type') || '';
+        const bytes = Number(res.headers.get('content-length') || 0);
+        netNote('fetch', method, url, res.status, type, bytes, TEXTY.test(type) ? { candidate: true } : null);
+      }, (e) => netNote('fetch', method, url, 'failed', '', 0, { error: String(e?.message || e).slice(0, 120) }));
     }
     if (!mayMatter(url, HOST)) return pending; // nearly every request: untouched
     pending.then((res) => {
@@ -96,7 +173,24 @@ import { MAX_INSPECT_BYTES, classifyResponse, mayMatter, netflixManifestInfo } f
   const XHR = XMLHttpRequest.prototype;
   const origOpen = XHR.open;
   const origSend = XHR.send;
+  const debugXhr = new WeakMap();
+  function onDebugXhr() {
+    try {
+      const d = debugXhr.get(this);
+      const type = this.getResponseHeader('content-type') || '';
+      const rt = this.responseType;
+      let bytes = Number(this.getResponseHeader('content-length') || 0);
+      let extra = null;
+      if (TEXTY.test(type) || ((rt === '' || rt === 'text') && /nflxvideo|nflxso|oca\./.test(d.url))) {
+        const text = rt === '' || rt === 'text' ? this.responseText : '';
+        bytes = bytes || text.length;
+        extra = { candidate: true, responseType: rt, head: text.slice(0, 60).replace(/\s+/g, ' ') };
+      }
+      netNote('xhr', d.method, d.url, this.status, type || `(none, ${rt || 'text'})`, bytes, extra);
+    } catch { /* ignore */ }
+  }
   XHR.open = function open(method, url, ...rest) {
+    if (DEBUG) debugXhr.set(this, { method, url: String(url) });
     const u = String(url);
     if (mayMatter(u, HOST)) watched.set(this, u);
     else if (watched.has(this)) watched.delete(this); // an XHR object reused for another URL
@@ -122,9 +216,20 @@ import { MAX_INSPECT_BYTES, classifyResponse, mayMatter, netflixManifestInfo } f
     } catch { /* ignore */ }
   }
   XHR.send = function send(...args) {
+    if (DEBUG && debugXhr.has(this)) this.addEventListener('loadend', onDebugXhr, { once: true });
     if (watched.has(this)) this.addEventListener('load', onXhrLoad, { once: true });
     return origSend.apply(this, args);
   };
+
+  if (DEBUG && typeof window.WebSocket === 'function') {
+    window.WebSocket = new Proxy(window.WebSocket, {
+      construct(target, args) {
+        dbg({ ev: 'websocket', url: strip(args[0]) });
+        return Reflect.construct(target, args);
+      },
+    });
+  }
+  dbg({ ev: 'hook', path: location.pathname, debug: true });
 
   // ---- Netflix seek bridge -------------------------------------------------
   function netflixPlayer() {
@@ -150,6 +255,11 @@ import { MAX_INSPECT_BYTES, classifyResponse, mayMatter, netflixManifestInfo } f
   function onContentMessage(e) {
     const { type, seconds, reqId, url } = e.data || {};
     if (type === 'fetch' && typeof url === 'string') return pageFetch(url, reqId);
+    if (type === 'debug-dump') {
+      const summary = [...net].map(([k, e]) => ({ request: k, n: e.n, kb: Math.round(e.bytes / 1024), types: [...e.types].slice(0, 4), statuses: [...e.statuses].slice(0, 4) }))
+        .sort((a, b) => b.n - a.n).slice(0, 150);
+      return port?.postMessage({ type: 'debug-dump', payload: { reqId, debug: DEBUG, network: summary, parseShapes: shapes } });
+    }
     if (type !== 'seek') return;
     const p = netflixPlayer();
     let ok = false;
@@ -171,5 +281,6 @@ import { MAX_INSPECT_BYTES, classifyResponse, mayMatter, netflixManifestInfo } f
     port.onmessage = onContentMessage;
     window.postMessage({ __cleancut: 'port' }, location.origin, [channel.port2]);
     for (const msg of backlog.splice(0)) port.postMessage(msg);
+    for (const msg of debugBacklog.splice(0)) port.postMessage(msg);
   });
 })();
