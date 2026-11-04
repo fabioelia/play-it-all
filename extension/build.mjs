@@ -137,6 +137,7 @@ const STATIC = {
   'popup.html': 'popup/popup.html',
   'popup.css': 'popup/popup.css',
   'options.html': 'options/options.html',
+  'options.css': 'options/options.css',
 };
 
 function writeStatic(outdir, target) {

@@ -2,55 +2,106 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="color-scheme" content="light dark">
   <title>CleanCut options</title>
   <link rel="stylesheet" href="popup.css">
-  <style>
-    body { width: auto; max-width: 640px; margin: 0 auto; padding: 16px; }
-    h1 { font-size: 20px; display: flex; gap: 10px; align-items: center; }
-    .card h2 { margin-bottom: 8px; }
-    .field { display: flex; gap: 8px; align-items: center; margin: 8px 0; }
-    .field input { flex: 1; padding: 6px 8px; }
-    p { margin: 6px 0; }
-    code { background: #2a2a32; padding: 1px 5px; border-radius: 4px; }
-    a { color: #8ab4ff; }
-  </style>
+  <link rel="stylesheet" href="options.css">
 </head>
-<body>
-  <h1><img src="icons/icon-48.png" alt="" width="28" height="28"> CleanCut</h1>
-  <p class="muted">Watch any show at the rating you choose. CleanCut skips, mutes or hides scenes using timestamps from a community catalog on GitHub, plus a scan-ahead analysis of the episode's subtitles.</p>
-
-  <section class="card">
-    <h2>Catalog</h2>
-    <p class="small muted">Where tags and skip lists come from. The default is the public catalog on GitHub. No account is needed to use it.</p>
-    <div class="field"><input id="base" type="url" aria-label="Catalog address" placeholder="https://raw.githubusercontent.com/…/catalog/"><button id="base-save">Save</button><button id="base-reset">Default</button></div>
-    <div class="field"><label class="small" for="repo">Submissions go to</label><input id="repo" aria-label="GitHub repository for submissions" placeholder="owner/repo"><button id="repo-save">Save</button></div>
-    <div class="small" id="catalog-status"></div>
-    <div class="row"><button id="refresh">Check for updates now</button></div>
-  </section>
-
-  <section class="card">
-    <h2>Your tags</h2>
-    <p class="small muted" id="tag-count"></p>
-    <div class="row">
-      <button id="export">Export JSON</button>
-      <button id="import-btn">Import JSON</button><input id="import" type="file" accept="application/json" hidden>
+<body class="options">
+  <header class="page-head">
+    <img src="icons/icon-48.png" alt="" width="40" height="40">
+    <div>
+      <h1>CleanCut</h1>
+      <p class="help">Watch any show at the rating you choose.</p>
     </div>
-    <div class="small" id="tag-status"></div>
+  </header>
+  <p class="intro">CleanCut skips, mutes or hides scenes using timestamps from a community catalog on GitHub, plus a look ahead at the episode’s subtitles. Pick your rating from the CleanCut button in the toolbar while you watch.</p>
+
+  <section class="card section" aria-labelledby="catalog-h">
+    <div class="section-head">
+      <h2 id="catalog-h">Catalog</h2>
+      <p class="help">Where tags and skip lists come from. The public catalog on GitHub works out of the box, with no account needed.</p>
+    </div>
+    <div class="status-row">
+      <p class="status" id="catalog-status" role="status">Checking the catalog…</p>
+      <button id="refresh" class="btn small">Check for updates</button>
+    </div>
+    <dl class="counts" id="catalog-counts" hidden></dl>
+    <details class="disclosure" id="catalog-advanced">
+      <summary>Use a different catalog</summary>
+      <div class="disclosure-body form">
+        <div class="field-group">
+          <label for="base">Catalog address</label>
+          <p class="help" id="base-help">The folder CleanCut reads tags from. Change it only if you run your own copy of the catalog.</p>
+          <div class="inline">
+            <input id="base" type="url" aria-describedby="base-help" placeholder="https://raw.githubusercontent.com/…/catalog/">
+            <button id="base-save" class="btn">Save</button>
+            <button id="base-reset" class="btn">Use default</button>
+          </div>
+        </div>
+        <div class="field-group">
+          <label for="repo">Where shared tags go</label>
+          <p class="help" id="repo-help">The GitHub repository, as owner/name, where sharing opens an issue.</p>
+          <div class="inline">
+            <input id="repo" aria-describedby="repo-help" placeholder="owner/repo">
+            <button id="repo-save" class="btn">Save</button>
+          </div>
+        </div>
+        <p class="status" id="catalog-form-status" role="status"></p>
+      </div>
+    </details>
   </section>
 
-  <section class="card">
-    <h2>Troubleshooting</h2>
-    <p class="small muted">If a site feels slow with CleanCut on, switch these off one at a time, reload the site, and see which one makes the difference.</p>
-    <label class="check"><input type="checkbox" id="part-hook"> Network hook: finds the episode's subtitle track (starts before the page's own scripts)</label>
-    <label class="check"><input type="checkbox" id="part-content"> On-page script: skipping, muting, the overlay and tagging (starts after the page loads)</label>
-    <div class="small" id="parts-status"></div>
+  <section class="card section" aria-labelledby="data-h">
+    <div class="section-head">
+      <h2 id="data-h">Your data</h2>
+      <p class="help">Scenes you flag are saved in this browser only. Export them to keep a backup or move them to another computer.</p>
+    </div>
+    <div class="data-row">
+      <div>
+        <p class="data-count" id="tag-count"></p>
+        <p class="help" id="tag-unshared"></p>
+      </div>
+      <div class="inline">
+        <button id="export" class="btn">Export tags</button>
+        <button id="import-btn" class="btn">Import tags</button><input id="import" type="file" accept="application/json" hidden>
+      </div>
+    </div>
+    <p class="status" id="tag-status" role="status"></p>
   </section>
 
-  <section class="card">
-    <h2>How to tag and share</h2>
-    <p class="small">While watching, press <code>Alt+[</code> when a scene starts and <code>Alt+]</code> when it ends, then pick a category and severity. Your tags apply right away, for you.</p>
-    <p class="small">To share them, open the CleanCut popup and click <strong>Share on GitHub</strong>. It opens a prefilled issue, and a bot turns it into a pull request for the catalog. <a id="contributing" target="_blank" rel="noopener">How the catalog works</a>.</p>
-    <p class="small">Scan-ahead works best with English subtitles. On Netflix and Prime, CleanCut reads the track the player already downloads. Turn on <em>English [CC]</em> once if nothing gets scanned. Subtitle timing is also how CleanCut lines up tags made on another service.</p>
+  <section class="card section" aria-labelledby="trouble-h">
+    <div class="section-head">
+      <h2 id="trouble-h">Troubleshooting</h2>
+      <p class="help">If a site feels slow with CleanCut on, switch these off one at a time, reload the site, and see which one makes the difference.</p>
+    </div>
+    <div class="toggle-row">
+      <div>
+        <p class="toggle-title" id="part-hook-label">Subtitle finder <span class="badge">network hook</span></p>
+        <p class="help" id="part-hook-help">Finds the episode’s subtitle track. Starts before the page’s own scripts.</p>
+      </div>
+      <label class="switch"><input type="checkbox" id="part-hook" role="switch" aria-labelledby="part-hook-label" aria-describedby="part-hook-help"><span class="track" aria-hidden="true"><span class="knob"></span></span></label>
+    </div>
+    <div class="toggle-row">
+      <div>
+        <p class="toggle-title" id="part-content-label">Player controls <span class="badge">on-page script</span></p>
+        <p class="help" id="part-content-help">Skipping, muting, the on-player overlay and flagging. Starts after the page loads.</p>
+      </div>
+      <label class="switch"><input type="checkbox" id="part-content" role="switch" aria-labelledby="part-content-label" aria-describedby="part-content-help"><span class="track" aria-hidden="true"><span class="knob"></span></span></label>
+    </div>
+    <p class="status" id="parts-status" role="status"></p>
+  </section>
+
+  <section class="card section" aria-labelledby="help-h">
+    <div class="section-head"><h2 id="help-h">How it works</h2></div>
+    <dl class="howto">
+      <dt>Flag a scene</dt>
+      <dd>While watching, open CleanCut and choose <strong>Flag a scene on the player</strong>, or press <kbd>Alt</kbd>+<kbd>[</kbd> when a scene starts and <kbd>Alt</kbd>+<kbd>]</kbd> when it ends. Your flag applies right away, just for you.</dd>
+      <dt>Share with everyone</dt>
+      <dd>Open CleanCut while the title is on screen and choose <strong>Share on GitHub</strong>. It opens a prefilled issue; after a quick review, a bot adds your tags to the catalog. <a id="contributing" target="_blank" rel="noopener">How the catalog works</a></dd>
+      <dt>Subtitles help</dt>
+      <dd>Scanning ahead works best with English subtitles. On Netflix and Prime Video, CleanCut reads the track the player already downloads; if nothing gets scanned, turn on <em>English [CC]</em> once. Subtitle timing is also how CleanCut lines up tags made on another service.</dd>
+    </dl>
   </section>
   <script src="options.js"></script>
 </body>
