@@ -36,8 +36,10 @@
     </section>
 
     <section class="card" id="rating-card" aria-labelledby="rating-h">
-      <div class="card-head"><h2 id="rating-h">Rating</h2><span class="meta" id="list-note"></span></div>
-      <div class="segmented" role="radiogroup" aria-labelledby="rating-h" id="presets"></div>
+      <div class="card-head"><h2 id="rating-h">Rating</h2></div>
+      <div class="segmented" role="radiogroup" aria-labelledby="rating-h" aria-describedby="list-note" id="presets"></div>
+      <!-- A skip list in use sets what is cut on this title; the buttons keep showing the viewer's own rating. -->
+      <div class="note list-note" id="list-note" role="status" hidden></div>
       <div id="custom" hidden></div>
       <details class="disclosure" id="advanced">
         <summary>How scenes are cut</summary>
@@ -72,7 +74,7 @@
         </button>
         <p class="help center">Shortcuts: <kbd>Alt</kbd>+<kbd>[</kbd> start · <kbd>Alt</kbd>+<kbd>]</kbd> end</p>
         <p class="help center" id="cuts-note" role="status"></p>
-        <button id="share" class="btn soft block" hidden>Share tags on GitHub</button>
+        <button id="share" class="btn soft block" hidden>Share your flags on GitHub</button>
       </div>
     </section>
 

@@ -32,14 +32,14 @@ async function showCatalog() {
       ? `Connected. Catalog updated ${when}.`
       : `Offline, using the saved copy from ${when}.`, st.online || 'warn');
     counts.replaceChildren(...[
-      ['Shows', c.shows], ['Films', c.movies], ['Tagged titles', c.episodes], ['Tags', c.segments], ['Skip lists', c.lists],
+      ['Shows', c.shows], ['Films', c.movies], ['Titles with flags', c.episodes], ['Flags', c.segments], ['Skip lists', c.lists],
     ].map(([label, n]) => {
       const div = document.createElement('div');
       div.append(Object.assign(document.createElement('dt'), { textContent: label }), Object.assign(document.createElement('dd'), { textContent: (n ?? 0).toLocaleString() }));
       return div;
     }));
   } else {
-    say('catalog-status', `Can’t read the catalog at ${st?.base || 'that address'}${st?.error ? ` (${st.error})` : ''}. Filtering still works with your own tags and subtitle scanning.`, false);
+    say('catalog-status', `Can’t read the catalog at ${st?.base || 'that address'}${st?.error ? ` (${st.error})` : ''}. Cutting still works with your own flags and the subtitle scan.`, false);
   }
 }
 
@@ -48,9 +48,9 @@ async function renderTags() {
   const all = Object.values(localTags).flatMap((e) => e.segments);
   const unshared = all.filter((s) => !s.sharedAt).length;
   const titles = Object.keys(localTags).length;
-  $('tag-count').textContent = all.length ? `${plural(all.length, 'tag')} across ${plural(titles, 'title')}` : 'No tags yet';
+  $('tag-count').textContent = all.length ? `${plural(all.length, 'flag')} across ${plural(titles, 'title')}` : 'No flags yet';
   $('tag-unshared').textContent = unshared
-    ? `${plural(unshared, 'tag')} not shared yet. Share them from CleanCut while the title is on screen.`
+    ? `${plural(unshared, 'flag')} not shared yet. Share them from the CleanCut menu while the title is playing.`
     : all.length ? 'All shared. Thank you!' : 'Scenes you flag while watching show up here.';
 }
 
@@ -95,7 +95,7 @@ $('export').addEventListener('click', async () => {
   const blob = new Blob([JSON.stringify({ version: 1, exportedAt: new Date().toISOString(), localTags }, null, 2)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'cleancut-tags.json';
+  a.download = 'cleancut-flags.json';
   a.click();
   URL.revokeObjectURL(a.href);
 });
@@ -114,10 +114,10 @@ $('import').addEventListener('change', async (e) => {
       localTags[key] = cur;
     }
     await chrome.storage.local.set({ localTags });
-    say('tag-status', `Imported ${added} tag${added === 1 ? '' : 's'}.`);
+    say('tag-status', `Imported ${plural(added, 'flag')}.`);
     renderTags();
   } catch (err) {
-    say('tag-status', `Import failed: ${err.message}`, false);
+    say('tag-status', `Couldn’t import that file: ${err.message}.`, false);
   }
 });
 
@@ -126,7 +126,10 @@ async function showParts() {
   $('part-hook').checked = p.hook;
   $('part-content').checked = p.content;
   const names = { 'cleancut-hook': 'network hook', 'cleancut-content': 'on-page script' };
-  say('parts-status', `Running in pages: ${p.registered.length ? p.registered.map((id) => names[id] || id).join(', ') : 'nothing'}. Reload the streaming tab after a change.`, p.registered.length ? true : 'warn');
+  // Each part is registered twice: for the sites' own pages, and for players embedded in other sites (…-frames).
+  const parts = [...new Set(p.registered.map((id) => id.replace(/-frames$/, '')))].map((id) => names[id] || id);
+  const embedded = p.registered.some((id) => id.endsWith('-frames')) ? ', also in embedded players' : '';
+  say('parts-status', `Running in pages: ${parts.length ? `${parts.join(', ')}${embedded}` : 'nothing'}. Reload the streaming tab after a change.`, parts.length ? true : 'warn');
 }
 for (const [id, part] of [['part-hook', 'hook'], ['part-content', 'content']]) {
   $(id).addEventListener('change', async (e) => {

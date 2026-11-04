@@ -17,8 +17,8 @@ It has three parts:
 | **Scanner CLI** (`cleancut-scan`) | Runs lightweight vision models over video files offline and publishes machine-detected segments | [`scanner/`](scanner) |
 
 <p>
-  <img src="docs/overlay.png" alt="Demo player: a toast reads 'Skipped 0:10 · violence (strong)' with an Undo button, and a coloured strip of cuts runs along the bottom" width="62%">
-  <img src="docs/popup.png" alt="Extension popup: what is playing with its rating, cut count and time skipped, the rating buttons Off/R/PG-13/PG/G/Custom, the list of cuts in this episode, and a button to flag a scene on the player" width="30%">
+  <img src="docs/overlay.png" alt="Demo player: on the right edge, a toast reads 'Skipped 0:10 · violence (strong)' with an Undo button, above the CleanCut badge and the Flag scene control; a coloured strip of cuts runs along the bottom" width="62%">
+  <img src="docs/popup.png" alt="Extension popup: what is playing with its rating, cut count and time skipped, the rating buttons Uncut/R/PG-13/PG/G/Custom, the list of cuts in this episode (the one already played marked Earlier), and a button to flag a scene on the player" width="30%">
 </p>
 
 They share one core ([`shared/`](shared)): the content taxonomy, the rating
@@ -150,16 +150,21 @@ the scan stays.
 
 ### Tagging and sharing
 
-- Move the mouse over the player: next to the CleanCut badge on the right is
-  **Flag scene**. Click it when a scene starts and **Done** when it ends, or
+- Move the mouse over the player: on the right edge, under the CleanCut badge,
+  is **Flag scene**. Click it when a scene starts and **Done** when it ends, or
   click **Last 10 s** to flag what just played. Pick what is in the scene,
   nudge the start and end by a second if needed, and **Save flag**. It applies
   immediately, and the toast has **Undo**. Keyboard: `Alt+[` starts and
   finishes, `Alt+]` finishes (or flags the last 10 s), `Esc` cancels.
-  Screenshots: [`docs/flagging/`](docs/flagging).
-- Create an account in **Options** to share tags. **Share my unshared tags**
-  uploads anything tagged before you signed up.
-- **Publish my settings as a skip list…** in the popup shares your rating
+  Everything CleanCut shows on a player (toasts, badge, flag control) sits on
+  that right-edge rail, clear of the sites' own controls along the top and
+  bottom; while an ad plays it shows only the badge.
+  Screenshots: [`docs/flagging/`](docs/flagging) (demo, Netflix- and
+  Prime-style players) and [`docs/youtube/`](docs/youtube) (default, theater,
+  fullscreen, during an ad); `node test/e2e/player-screenshots.mjs` retakes them.
+- **Share N flags on GitHub** in the popup opens a prefilled issue on the
+  catalog repository with the flags you made on this title.
+- **Share my settings as a skip list…** in the popup shares your rating
   settings, for this title or for everything. Scenes you chose to *Let play*
   become explicit exceptions. Other people see the list in their popup and
   can **Use** it.

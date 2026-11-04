@@ -7,6 +7,7 @@ import { displayTitle, formatTime, titleKey } from '../../../shared/identity.js'
 import { CATEGORIES, SEVERITIES, defaultProfile, describeProfile } from '../../../shared/ratings.js';
 import { segmentsFor, referenceCues } from '../../../shared/catalog.js';
 import { alignCues, fingerprint } from '../../../shared/align.js';
+import { platformName } from '../../../shared/platforms.js';
 import { detectAdapter } from './adapters.js';
 import { createNetworkInspector } from './network.js';
 import { CATEGORY_COLORS, Overlay } from './overlay.js';
@@ -22,12 +23,13 @@ import { Flagger, LAST_SECONDS } from './flagger.js';
   const TICK_MS = 100;
   const IDENTIFY_MS = 1000;
   const label = (id) => CATEGORIES.find((c) => c.id === id)?.label || id;
+  const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
   // ---- messaging helpers ---------------------------------------------------
 
   const alive = () => !!chrome.runtime?.id; // false after the extension reloads
   async function bg(message) {
-    if (!alive()) return { error: 'extension reloaded — refresh the page' };
+    if (!alive()) return { error: 'CleanCut was updated. Reload the page.' };
     try {
       return await chrome.runtime.sendMessage(message);
     } catch (e) {
@@ -122,6 +124,7 @@ import { Flagger, LAST_SECONDS } from './flagger.js';
     mutedByUs: false,
     seekPending: false,
     seekBroken: false, // the player refused to seek: cover skip regions instead
+    ad: false, // the site is playing an ad (adapter.isAdPlaying), as of the last tick
     captionsHidden: false,
     prevMuted: false,
     blurred: false,
@@ -232,7 +235,10 @@ import { Flagger, LAST_SECONDS } from './flagger.js';
     computeRemote();
     if (state.timing === 'aligned') {
       const a = state.alignment;
-      overlay.toast(`Synced ${state.remote.length} tag${state.remote.length === 1 ? '' : 's'} to this service from subtitle timing (${a.offset >= 0 ? '+' : ''}${a.offset}s)`, { ms: 5000, color: '#7cb342' });
+      overlay.toast(`Synced ${plural(state.remote.length, 'flag')} to ${state.ident.platform === 'web' ? 'this video' : platformName(state.ident.platform)}`, {
+        detail: `Lined up by subtitle timing (${a.offset >= 0 ? '+' : '−'}${Math.abs(a.offset)} s)`,
+        ms: 5000,
+      });
     }
   }
 
@@ -248,9 +254,15 @@ import { Flagger, LAST_SECONDS } from './flagger.js';
     const duration = state.video?.duration;
     overlay.renderTimeline(state.plan.flagged, duration);
     const cuts = state.plan.actions.length;
-    const removed = skippedSeconds(state.plan.actions, duration);
-    overlay.setBadge(`CleanCut · ${list ? list.name : describeProfile(effectiveProfile())} · ${cuts} cut${cuts === 1 ? '' : 's'}${removed ? ` (−${formatTime(removed)})` : ''}`);
+    overlay.setBadge(!state.settings.enabled ? 'CleanCut is off'
+      : state.ad ? 'CleanCut · Waiting for the ad to end'
+        : `CleanCut · ${ratingName()} · ${plural(cuts, 'cut')}`);
     bg({ type: 'status', count: state.settings.enabled ? cuts : 0, enabled: state.settings.enabled });
+  }
+
+  /** The rating in force, as the popup names it: a skip list's name, or the preset ("PG-13", "Uncut"). */
+  function ratingName() {
+    return activeList()?.name || describeProfile(effectiveProfile());
   }
 
   // ---- identification & lookup -------------------------------------------------
@@ -291,10 +303,18 @@ import { Flagger, LAST_SECONDS } from './flagger.js';
     if (refresh) return;
     if (state.settings.enabled && state.remote.length + state.local.length) {
       const n = state.remote.length + state.local.length;
-      overlay.toast(`${displayTitle(ident.meta)} · ${n} tagged scene${n === 1 ? '' : 's'} · filtering at ${activeList()?.name || describeProfile(effectiveProfile())}`, { ms: 4000 });
+      const list = activeList();
+      overlay.toast(displayTitle(ident.meta), {
+        detail: `${plural(n, 'flagged scene')} · ${list ? `using “${list.name}”` : `cut to ${ratingName()}`}`,
+        ms: 4000,
+      });
     }
     if (state.timing === 'unsynced' && state.remote.length) {
-      overlay.toast(`These tags were timed on ${state.episode.timeline}. Turn on English subtitles so CleanCut can sync them, or nudge Sync in the popup.`, { ms: 8000, color: '#f9a825' });
+      overlay.toast(`These flags were timed on ${platformName(state.episode.timeline)}`, {
+        tone: 'warn',
+        detail: 'Turn on English subtitles so CleanCut can line them up, or adjust Timing in the CleanCut menu.',
+        ms: 8000,
+      });
     }
   }
 
@@ -389,7 +409,7 @@ import { Flagger, LAST_SECONDS } from './flagger.js';
     if (state.subtitleInfo?.sdh && !sdh) return; // keep the richer SDH track
     scanTrack({ text }, { url, sdh: !!sdh }).then((ok) => {
       const found = state.subtitle.length;
-      if (ok && found) overlay.toast(`Scanned ahead: ${found} possible issue${found === 1 ? '' : 's'} found in subtitles`, { ms: 3500, color: '#7cb342' });
+      if (ok && found) overlay.toast('Subtitles scanned ahead', { detail: `${plural(found, 'possible scene')} found`, ms: 3500 });
     });
   }
 
@@ -417,7 +437,11 @@ import { Flagger, LAST_SECONDS } from './flagger.js';
       // Netflix sends links only for the subtitle track that is selected.
       if (askedForSubtitles.has(payload.forId) || state.subtitleInfo) return;
       askedForSubtitles.add(payload.forId);
-      overlay.toast('To scan ahead, turn on English subtitles [CC] once for this episode. You can turn them off again right after.', { ms: 9000, color: '#f9a825' });
+      overlay.toast('Turn on English subtitles [CC] once', {
+        tone: 'warn',
+        detail: 'CleanCut reads them to scan this episode ahead. You can turn them off again right after.',
+        ms: 9000,
+      });
     } else adapter.onPageMessage(type, payload);
   }, { pageFetch, log });
 
@@ -511,8 +535,21 @@ import { Flagger, LAST_SECONDS } from './flagger.js';
       logError('tick', e);
     }
   }
+  /** An ad started or ended: CleanCut does nothing during one, and says so on the badge. */
+  function adChanged(ad) {
+    state.ad = ad;
+    overlay.setAd(ad);
+    if (ad && state.flag?.phase === 'recording') {
+      cancelFlag(); // the ad's clock is not the episode's
+      overlay.toast('Flagging stopped for the ad', { detail: 'Flag the scene again once the episode is back.' });
+    }
+    replan(); // the badge, and the timeline once the episode's duration is back
+  }
+
   function tickOnce(event) {
-    if (adapter.isAdPlaying?.()) return restorePlayback(); // never skip, mute or hide during an ad (adapters.js)
+    const ad = !!adapter.isAdPlaying?.();
+    if (ad !== state.ad) adChanged(ad);
+    if (ad) return restorePlayback(); // never skip, mute or hide during an ad (adapters.js)
     const video = state.video;
     if (!video || !state.plan || !state.settings.enabled || !video.isConnected || video.readyState === 0) {
       if (!state.settings.enabled) restorePlayback();
@@ -543,7 +580,7 @@ import { Flagger, LAST_SECONDS } from './flagger.js';
             // The player would not seek (on Netflix: its internal API changed).
             // Hide the scene another way rather than let it play.
             state.seekBroken = true;
-            overlay.toast("This player won't let CleanCut skip, so those scenes will be muted with the picture hidden instead.", { color: '#f9a825', ms: 8000 });
+            overlay.toast('This player won’t let CleanCut skip', { tone: 'warn', detail: 'Scenes to skip are muted and hidden instead.', ms: 8000 });
             tick();
             return;
           }
@@ -603,9 +640,16 @@ import { Flagger, LAST_SECONDS } from './flagger.js';
     onCancel: () => cancelFlag(),
   });
 
+  /** Flagging during an ad would time the scene on the ad's clock. */
+  function adRefusal() {
+    overlay.toast('Wait for the ad to end', { detail: 'Then flag the scene.', ms: 3000 });
+    return { error: 'ad playing' };
+  }
+
   function startFlag() {
     const video = state.video;
     if (!video) return { error: 'no video' };
+    if (state.ad) return adRefusal();
     if (state.flag?.phase === 'picking') return { error: 'already picking' };
     // Pressed again while recording (popup "Mark start"): start over from here.
     state.markStart = adapter.currentTime(video);
@@ -640,6 +684,7 @@ import { Flagger, LAST_SECONDS } from './flagger.js';
     const video = state.video;
     if (!video) return { error: 'no video' };
     if (state.flag) return { error: 'already flagging' };
+    if (state.ad) return adRefusal();
     const end = adapter.currentTime(video);
     return pickAndSave(Math.max(0, end - LAST_SECONDS), end, how);
   }
@@ -694,7 +739,7 @@ import { Flagger, LAST_SECONDS } from './flagger.js';
     if (wasPlaying && state.video === video) video.play().catch(() => {});
     if (!answer) return { cancelled: true };
     if (!state.ident || state.key !== key) {
-      overlay.toast('CleanCut has not recognised this title yet, so the flag was not saved. Try again in a moment.', { color: '#e53935' });
+      overlay.toast('Flag not saved', { tone: 'bad', detail: 'CleanCut hasn’t recognized this title yet. Try again in a moment.' });
       return { error: 'title not identified' };
     }
     const res = await bg({
@@ -703,7 +748,7 @@ import { Flagger, LAST_SECONDS } from './flagger.js';
       segment: { start: answer.start, end: answer.end, category: answer.category, severity: answer.severity, note: answer.note },
     });
     if (!res?.segment) {
-      overlay.toast(`Could not save the flag: ${res?.error || 'unknown error'}`, { color: '#e53935' });
+      overlay.toast('Couldn’t save the flag', { tone: 'bad', detail: res?.error || 'Something went wrong. Try again.' });
       return res;
     }
     const seg = res.segment;
@@ -721,7 +766,7 @@ import { Flagger, LAST_SECONDS } from './flagger.js';
     state.flagsSaved++;
     overlay.toast(`Flagged ${label(seg.category).toLowerCase()} (${SEVERITIES[seg.severity]})`, {
       color: CATEGORY_COLORS[seg.category],
-      detail: `${formatTime(seg.start)}–${formatTime(seg.end)} · ${flagEffect(seg)}${state.flagsSaved === 1 ? ' · share it from the CleanCut menu' : ''}`,
+      detail: [`${formatTime(seg.start)}–${formatTime(seg.end)} · ${flagEffect(seg)}`, ...(state.flagsSaved === 1 ? ['To share it, open the CleanCut menu.'] : [])],
       actionLabel: 'Undo',
       onAction: () => unflag(seg, key),
       ms: 8000,
@@ -729,12 +774,12 @@ import { Flagger, LAST_SECONDS } from './flagger.js';
     return res;
   }
 
-  /** What the new tag does at the current rating, in a few words. */
+  /** What the new flag does at the current rating, in a few words. */
   const DONE_TO = { skip: 'skipped', mute: 'muted', blur: 'picture hidden' };
   function flagEffect(seg) {
-    if (!state.settings.enabled) return 'saved; CleanCut is off';
+    if (!state.settings.enabled) return 'saved, but CleanCut is off';
     const f = state.plan?.flagged.find((x) => x.id === seg.id);
-    const rating = activeList()?.name || describeProfile(effectiveProfile());
+    const rating = ratingName();
     return f?.decision === 'filter' ? `${DONE_TO[f.action] || 'cut'} at ${rating}` : `still plays at ${rating}`;
   }
 
@@ -744,14 +789,15 @@ import { Flagger, LAST_SECONDS } from './flagger.js';
       state.local = state.local.filter((l) => l.id !== seg.id);
       replan();
     }
-    if (res?.error) overlay.toast(`Could not remove the flag: ${res.error}`, { color: '#e53935' });
-    else overlay.toast('Flag removed', { color: '#888', ms: 2500 });
+    if (res?.error) overlay.toast('Couldn’t remove the flag', { tone: 'bad', detail: res.error });
+    else overlay.toast('Flag removed', { ms: 2500 });
   }
 
   /** The popup's "Flag a scene": show the control on the player, ready to start. */
   function openFlagger() {
     const video = state.video;
     if (!video?.isConnected) return { error: 'no video playing' };
+    if (state.ad) return { error: 'ad playing' };
     overlay.attach();
     flagger.invite();
     return { ok: true };
@@ -881,7 +927,7 @@ import { Flagger, LAST_SECONDS } from './flagger.js';
           finishFlag();
           return { ok: true };
         case 'share': {
-          if (!state.ident) return { error: 'nothing playing' };
+          if (!state.ident) return { error: 'CleanCut hasn’t recognized this title yet. Try again in a moment.' };
           const cues = state.subtitleInfo?.cueStarts;
           return bg({
             type: 'shareTags',

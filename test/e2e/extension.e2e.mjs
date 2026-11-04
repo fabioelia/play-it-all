@@ -313,7 +313,7 @@ try {
     await popup.goto(`chrome-extension://${extensionId}/popup.html?tab=${tabId}`);
     const share = popup.locator('#share');
     await share.waitFor();
-    assert.match(await share.textContent(), /Share 1 tag on GitHub/);
+    assert.match(await share.textContent(), /Share 1 flag on GitHub/);
     // Record the address the popup asks Chrome to open. (A tab opened with
     // chrome.tabs.create can start loading before Playwright's routes attach to it,
     // and without the "tabs" permission its URL is hidden from the extension.)
@@ -369,7 +369,7 @@ try {
   await step('tags timed on another service are synced from subtitle timing', async () => {
     await useCatalog(XPLAT);
     await openDemo();
-    await page.locator('cleancut-overlay .toast', { hasText: 'Synced 2 tags' }).waitFor({ timeout: 10_000 });
+    await page.locator('cleancut-overlay .toast', { hasText: 'Synced 2 flags' }).waitFor({ timeout: 10_000 });
     await waitFor(async () => /4 cuts/.test(await badge()), { what: 'badge with 4 cuts after sync' });
     await playFrom(17.5);
     const seek = await waitFor(async () => (await autoSeeks()).find((x) => x.to >= 29.9), { what: 'synced skip past 0:30' });
