@@ -129,7 +129,8 @@ function renderPage() {
   $('inject').hidden = has || !/^https?:/.test(tab?.url || '');
   $('sync-row').hidden = !page?.ident;
   $('upcoming-card').hidden = !page?.ident;
-  $('lists-card').hidden = !page?.ident;
+  // Only when a list fits this title (or one is in use, so it can be stopped).
+  $('lists-card').hidden = !page?.ident || !(page.profiles?.length || page.activeList);
   $('tag-card').hidden = !page?.ident;
   if (!has) {
     $('now-site').textContent = 'Not on a supported player';
@@ -240,13 +241,19 @@ function scopeKeyFor(list) {
   return `show:${list.scope}`;
 }
 
+function scopeLabel(scope = '') {
+  if (scope === '*') return 'all titles';
+  if (scope.includes('/')) return 'this episode';
+  return page?.catalog?.key === scope ? 'this film' : 'this show';
+}
+
 function renderLists() {
   const ul = $('lists');
   ul.replaceChildren();
   const active = page.activeList;
   $('active-list').hidden = !active;
   if (active) {
-    $('active-list').replaceChildren(`Using “${active.name}” for ${active.scope}. `);
+    $('active-list').replaceChildren(`Using “${active.name}” for ${scopeLabel(active.scope)}. `);
     const stop = document.createElement('button');
     stop.className = 'link';
     stop.textContent = 'Stop using';
@@ -256,14 +263,7 @@ function renderLists() {
     });
     $('active-list').append(stop);
   }
-  if (!page.profiles.length) {
-    const li = document.createElement('li');
-    li.className = 'small muted';
-    li.textContent = page.online === false ? 'Skip lists unavailable offline.' : 'No skip lists for this title yet.';
-    ul.append(li);
-    return;
-  }
-  for (const p of page.profiles) {
+  for (const p of page.profiles || []) {
     const li = document.createElement('li');
     const info = document.createElement('div');
     const name = document.createElement('div');
@@ -272,7 +272,7 @@ function renderLists() {
     const meta = document.createElement('div');
     meta.className = 'small muted';
     const preset = p.settings.preset === 'custom' ? 'custom' : PRESETS[p.settings.preset]?.label;
-    meta.textContent = `${preset}${p.author ? ` · by ${p.author}` : ''} · ${p.scope === '*' ? 'all titles' : p.scope.includes('/') ? 'this title' : 'this show'}`;
+    meta.textContent = `${preset}${p.author ? ` · by ${p.author}` : ''} · ${scopeLabel(p.scope)}`;
     if (p.description) meta.title = p.description;
     info.append(name, meta);
     const use = document.createElement('button');

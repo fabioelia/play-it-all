@@ -273,10 +273,19 @@ export function lookup(index, { platform, platformId, canonicalKey: ck }) {
   return null;
 }
 
-/** Lists that apply to a key: global ones, the show's, and the episode's. */
-export function listsFor(index, key) {
-  const show = key?.split('/')[0];
-  return (index.lists || []).filter((l) => l.scope === '*' || l.scope === key || (show && l.scope === show));
+/**
+ * Lists made for this title: the episode's (or film's) own, and its show's.
+ * Lists for all titles (scope '*') are general presets, not offered per title.
+ * @param {string|string[]} keys catalog key and/or canonical key of the title
+ */
+export function listsFor(index, keys) {
+  const wanted = new Set();
+  for (const key of [keys].flat()) {
+    if (!key) continue;
+    wanted.add(key);
+    wanted.add(key.split('/')[0]);
+  }
+  return (index.lists || []).filter((l) => l.scope !== '*' && wanted.has(l.scope));
 }
 
 // ---- submissions ------------------------------------------------------------------------

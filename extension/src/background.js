@@ -109,7 +109,7 @@ async function lookupTitle(title) {
       out.via = hit.via;
       out.episode = (await fetchCatalog(hit.path)).data;
     }
-    const lists = await Promise.all(listsFor(index.data, hit?.key).map((l) => fetchCatalog(l.path).then((r) => r.data, () => null)));
+    const lists = await Promise.all(listsFor(index.data, [hit?.key, title.canonicalKey]).map((l) => fetchCatalog(l.path).then((r) => r.data, () => null)));
     out.lists = lists.filter(Boolean).map(normalizeList);
   } catch (e) {
     out.error = e.message;

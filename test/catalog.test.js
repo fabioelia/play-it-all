@@ -131,7 +131,11 @@ test('index: platform ids, names across services, movies without year, lists', (
   // Films: services rarely show the year.
   assert.equal(lookup(index, { platform: 'netflix', platformId: 'y', canonicalKey: 'example-film' }).key, 'example-film-2001');
 
-  assert.deepEqual(listsFor(index, 'game-of-thrones/s01e01').map((l) => l.id), ['family-night', 'got-teens']);
+  // Only lists made for the title: its show's or its own, not the all-titles ones.
+  assert.deepEqual(listsFor(index, 'game-of-thrones/s01e01').map((l) => l.id), ['got-teens']);
+  assert.deepEqual(listsFor(index, 'example-film-2001').map((l) => l.id), []);
+  assert.deepEqual(listsFor(index, [null, 'game-of-thrones/s09e09']).map((l) => l.id), ['got-teens']); // not in the catalog yet, known by name
+  assert.deepEqual(listsFor(index, null), []);
 });
 
 test('validators', () => {

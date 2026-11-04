@@ -296,6 +296,14 @@ try {
     await popup.locator('#presets button', { hasText: 'Custom' }).click();
     await popup.waitForSelector('#custom .cat-row');
     assert.equal(await popup.locator('#custom .cat-row').count(), 7);
+    // Pointed at the demo tab: no skip list is made for this title (the catalog's
+    // lists are for all titles), so the Community skip lists card stays hidden.
+    const demoTab = await worker.evaluate(async () => (await chrome.tabs.query({})).find((t) => /\/demo/.test(t.url || ''))?.id);
+    await popup.goto(`chrome-extension://${extensionId}/popup.html?tab=${demoTab}`);
+    await popup.locator('#now-title', { hasText: /\S/ }).waitFor();
+    await popup.waitForTimeout(300);
+    assert.equal(await popup.locator('#upcoming-card').isHidden(), false, 'title cards shown');
+    assert.equal(await popup.locator('#lists-card').isHidden(), true, 'no skip lists card without a list for this title');
     const options = await context.newPage();
     options.on('pageerror', (e) => perrs.push(e.message));
     await options.goto(`chrome-extension://${extensionId}/options.html`);
