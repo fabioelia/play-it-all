@@ -16,7 +16,7 @@ It has three parts:
 
 <p>
   <img src="docs/overlay.png" alt="Demo player: a toast reads 'Skipped 0:10 · violence (strong)' with an Undo button, and a coloured strip of cuts runs along the bottom" width="62%">
-  <img src="docs/popup.png" alt="Extension popup: rating buttons Off/R/PG-13/PG/G/Custom, the list of cuts in this episode, community skip lists, and tagging buttons" width="30%">
+  <img src="docs/popup.png" alt="Extension popup: what is playing with its rating, cut count and time skipped, the rating buttons Off/R/PG-13/PG/G/Custom, the list of cuts in this episode, and a button to flag a scene on the player" width="30%">
 </p>
 
 They share one core ([`shared/`](shared)): the content taxonomy, the rating
