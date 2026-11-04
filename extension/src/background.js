@@ -295,6 +295,14 @@ const SCRIPTS = {
   hook: { id: 'cleancut-hook', js: ['page-hook.js'], runAt: 'document_start', world: 'MAIN' },
   content: { id: 'cleancut-content', js: ['content.js'], runAt: 'document_idle', world: 'ISOLATED' },
 };
+// Each part is registered twice: for the streaming sites' own pages (top frame
+// only), and for embedded players (YouTube, Vimeo) in any frame of any site.
+const FRAMES_SUFFIX = '-frames';
+const registrations = (s) => [
+  { ...s, matches: __CLEANCUT_MATCHES__, persistAcrossSessions: true },
+  ...(__CLEANCUT_FRAME_MATCHES__.length ? [{ ...s, id: s.id + FRAMES_SUFFIX, matches: __CLEANCUT_FRAME_MATCHES__, allFrames: true, persistAcrossSessions: true }] : []),
+];
+const OUR_IDS = Object.values(SCRIPTS).flatMap((s) => registrations(s).map((r) => r.id));
 
 /**
  * Register the parts that are switched on. The registration persists across
@@ -304,14 +312,12 @@ const SCRIPTS = {
  */
 async function syncContentScripts({ force = true } = {}) {
   const { parts = {} } = await chrome.storage.local.get('parts');
-  const wanted = Object.entries(SCRIPTS).filter(([name]) => parts[name] !== false).map(([, s]) => s);
+  const wanted = Object.entries(SCRIPTS).filter(([name]) => parts[name] !== false).flatMap(([, s]) => registrations(s));
   const existing = await chrome.scripting.getRegisteredContentScripts();
-  const ours = existing.map((s) => s.id).filter((id) => Object.values(SCRIPTS).some((s) => s.id === id));
+  const ours = existing.map((s) => s.id).filter((id) => OUR_IDS.includes(id));
   if (!force && ours.length === wanted.length && wanted.every((s) => ours.includes(s.id))) return { registered: ours };
   if (ours.length) await chrome.scripting.unregisterContentScripts({ ids: ours });
-  if (wanted.length) {
-    await chrome.scripting.registerContentScripts(wanted.map((s) => ({ ...s, matches: __CLEANCUT_MATCHES__, persistAcrossSessions: true })));
-  }
+  if (wanted.length) await chrome.scripting.registerContentScripts(wanted);
   return { registered: wanted.map((s) => s.id) };
 }
 

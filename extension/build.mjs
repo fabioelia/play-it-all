@@ -7,6 +7,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { deflateSync } from 'node:zlib';
 import { execFileSync } from 'node:child_process';
+import { FRAME_MATCHES, MATCHES } from '../shared/platforms.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const src = join(here, 'src');
@@ -23,15 +24,11 @@ try {
 } catch { /* not a git checkout */ }
 const BUILD = `${pkg.version} (${commit}, ${new Date().toISOString().slice(0, 16).replace('T', ' ')} UTC)`;
 
-const STREAMING = [
-  'https://www.netflix.com/*',
-  'https://*.primevideo.com/*',
-  ...['com', 'co.uk', 'de', 'ca', 'com.au', 'fr', 'it', 'es', 'co.jp', 'in'].flatMap((tld) => [
-    `https://www.amazon.${tld}/gp/video/*`,
-    `https://www.amazon.${tld}/*/dp/*`,
-    `https://www.amazon.${tld}/dp/*`,
-  ]),
-];
+// Streaming sites: one entry per service in shared/platforms.js. STREAMING
+// are the pages CleanCut runs on; FRAMES are embedded players (YouTube,
+// Vimeo) it also runs in when they are iframes on other sites.
+const STREAMING = MATCHES;
+const FRAMES = FRAME_MATCHES;
 // The community catalog, read straight from GitHub.
 const CATALOG = ['https://raw.githubusercontent.com/*'];
 // Local development: the demo page and a local catalog (npm run dev).
@@ -43,12 +40,12 @@ function manifest(target) {
     name: 'CleanCut — watch at your rating',
     short_name: 'CleanCut',
     version: pkg.version,
-    description: 'Make any show PG-13, PG or G: skips, mutes or hides explicit scenes on Netflix and Prime Video using a community catalog on GitHub and scan-ahead subtitle analysis.',
+    description: 'Make any show PG-13, PG or G: skips, mutes or hides explicit scenes on Netflix, Prime Video, YouTube, Disney+, Max, Hulu and more, using a community catalog on GitHub and scan-ahead subtitle analysis.',
     icons: { 16: 'icons/icon-16.png', 32: 'icons/icon-32.png', 48: 'icons/icon-48.png', 128: 'icons/icon-128.png' },
     action: { default_popup: 'popup.html', default_title: 'CleanCut', default_icon: { 16: 'icons/icon-16.png', 32: 'icons/icon-32.png' } },
     options_ui: { page: 'options.html', open_in_tab: true },
     permissions: ['storage', 'scripting', 'activeTab'],
-    host_permissions: [...STREAMING, ...CATALOG, ...DEV],
+    host_permissions: [...new Set([...STREAMING, ...FRAMES, ...CATALOG, ...DEV])],
     optional_host_permissions: ['https://*/*', 'http://*/*'],
     // No static content_scripts: the background worker registers them
     // (chrome.scripting.registerContentScripts) so each part can be switched
@@ -128,10 +125,13 @@ function iconPixel(px, py, size) {
 const entries = {
   background: join(src, 'background.js'),
   content: join(src, 'content/index.js'),
-  'page-hook': join(src, 'page-hook.js'),
   popup: join(src, 'popup/popup.js'),
   options: join(src, 'options/options.js'),
 };
+// The page hook is parsed at document_start on every streaming page, before
+// the player: it is built on its own and minified (it carries the per-site
+// request rules and the platform list).
+const hookEntry = { 'page-hook': join(src, 'page-hook.js') };
 
 const STATIC = {
   'popup.html': 'popup/popup.html',
@@ -159,15 +159,21 @@ for (const target of ['chrome', 'firefox']) {
     format: 'iife',
     target: target === 'chrome' ? ['chrome111'] : ['firefox128'],
     legalComments: 'none',
-    define: { __CLEANCUT_BUILD__: JSON.stringify(BUILD), __CLEANCUT_MATCHES__: JSON.stringify([...STREAMING, ...DEV]) },
+    define: {
+      __CLEANCUT_BUILD__: JSON.stringify(BUILD),
+      __CLEANCUT_MATCHES__: JSON.stringify([...STREAMING, ...DEV]),
+      __CLEANCUT_FRAME_MATCHES__: JSON.stringify(FRAMES),
+    },
     logLevel: 'warning',
   };
-  if (watch) {
-    const ctx = await esbuild.context(options);
-    await ctx.watch();
-    contexts.push(ctx);
-  } else {
-    await esbuild.build(options);
+  for (const o of [options, { ...options, entryPoints: hookEntry, minify: true }]) {
+    if (watch) {
+      const ctx = await esbuild.context(o);
+      await ctx.watch();
+      contexts.push(ctx);
+    } else {
+      await esbuild.build(o);
+    }
   }
 }
 console.log(`Built CleanCut ${BUILD} → ${dist}/{chrome,firefox}${watch ? ' (watching)' : ''}`);

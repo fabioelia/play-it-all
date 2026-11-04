@@ -3,7 +3,10 @@
 // links the same episode across platforms so tags can be offered elsewhere
 // with a sync offset.
 
-export const PLATFORMS = ['netflix', 'prime', 'web'];
+import { PLATFORM_IDS } from './platforms.js';
+
+/** Platform ids the catalog accepts (see shared/platforms.js). */
+export const PLATFORMS = PLATFORM_IDS;
 
 export function slug(s) {
   return String(s || '')

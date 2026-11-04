@@ -92,7 +92,7 @@ test('unknown platform with a measured offset', () => {
 test('conflicting platform ids and bad input are rejected', () => {
   const ep = mergeSubmission(null, sub(nf, [{ start: 1, end: 2, category: 'gore', severity: 1 }])).episode;
   assert.throws(() => mergeSubmission(ep, sub({ ...nf, platformId: '999' }, [{ start: 1, end: 2, category: 'gore', severity: 1 }])), /already has id/);
-  assert.throws(() => mergeSubmission(null, sub({ ...nf, platform: 'hulu' }, [{ start: 1, end: 2, category: 'gore', severity: 1 }])), /platform/);
+  assert.throws(() => mergeSubmission(null, sub({ ...nf, platform: 'betamax' }, [{ start: 1, end: 2, category: 'gore', severity: 1 }])), /platform/);
   assert.throws(() => mergeSubmission(null, sub(nf, [{ start: 5, end: 2, category: 'gore', severity: 1 }])), /segments\[0\]/);
   assert.throws(() => mergeSubmission(null, sub({ platform: 'netflix', platformId: '1' }, [{ start: 1, end: 2, category: 'gore', severity: 1 }])), /title needs/);
 });
