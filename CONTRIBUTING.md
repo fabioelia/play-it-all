@@ -7,8 +7,10 @@ through GitHub, and the extension reads the catalog straight from here.
 
 ## The quick way: from the extension
 
-1. While you watch, press `Alt+[` when a scene starts and `Alt+]` when it
-   ends, then pick a category and severity.
+1. While you watch, click **Flag scene** on the player (move the mouse to
+   show it) when a scene starts and **Done** when it ends, or **Last 10 s**
+   right after it. Pick a category and severity and **Save flag**. The
+   shortcuts `Alt+[` and `Alt+]` do the same.
 2. Open the CleanCut popup and click **Share on GitHub**. It opens a
    [**Submit to the catalog**](../../issues/new?template=submit-to-catalog.yml)
    issue with everything filled in.

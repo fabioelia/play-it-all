@@ -49,7 +49,7 @@ presets, the decision engine, subtitle parsing and the subtitle analyzer.
    can be offered on another.
 2. **Gather segments** from three sources:
    - **Community tags:** humans marked a scene with a category and severity.
-   - **Your own tags:** marked with `Alt+[` / `Alt+]` while watching.
+   - **Your own tags:** flagged on the player while watching (**Flag scene**, or `Alt+[` / `Alt+]`).
    - **Scan-ahead:** the subtitle track is analyzed the moment the player
      downloads it, before the scenes play (see below).
 3. **Plan.** Your profile sets the highest severity allowed per category. Every
@@ -143,8 +143,13 @@ the scan stays.
 
 ### Tagging and sharing
 
-- Press `Alt+[` when a scene starts and `Alt+]` when it ends, then pick a
-  category and severity. The tag applies immediately.
+- Move the mouse over the player: next to the CleanCut badge on the right is
+  **Flag scene**. Click it when a scene starts and **Done** when it ends, or
+  click **Last 10 s** to flag what just played. Pick what is in the scene,
+  nudge the start and end by a second if needed, and **Save flag**. It applies
+  immediately, and the toast has **Undo**. Keyboard: `Alt+[` starts and
+  finishes, `Alt+]` finishes (or flags the last 10 s), `Esc` cancels.
+  Screenshots: [`docs/flagging/`](docs/flagging).
 - Create an account in **Options** to share tags. **Share my unshared tags**
   uploads anything tagged before you signed up.
 - **Publish my settings as a skip list…** in the popup shares your rating
