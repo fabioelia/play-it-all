@@ -1,0 +1,56 @@
+{
+ "responseContext": {},
+ "playabilityStatus": { "status": "OK", "playableInEmbed": true },
+ "videoDetails": {
+  "videoId": "eRsGyueVLvQ",
+  "title": "Sintel - Open Movie by Blender Foundation",
+  "lengthSeconds": "888",
+  "channelId": "UCSMOQeBJ2RAnuFungnQOxLg",
+  "author": "Blender",
+  "isLiveContent": false,
+  "isTvfilmVideo": false
+ },
+ "microformat": { "playerMicroformatRenderer": { "publishDate": "2010-09-30T00:00:00-07:00", "lengthSeconds": "888" } },
+ "captions": {
+  "playerCaptionsTracklistRenderer": {
+   "captionTracks": [
+    {
+     "baseUrl": "https://www.youtube.com/api/timedtext?v=eRsGyueVLvQ&ei=x&caps=asr&opi=1&exp=xpe&xoaf=5&hl=en&ip=0.0.0.0&ipbits=0&expire=1&sparams=ip,ipbits,expire,v,ei,caps,opi,exp,xoaf&signature=AB.CD&key=yt8&kind=asr&lang=en",
+     "name": { "runs": [{ "text": "English (auto-generated)" }] },
+     "vssId": "a.en",
+     "languageCode": "en",
+     "kind": "asr",
+     "isTranslatable": true,
+     "trackName": ""
+    },
+    {
+     "baseUrl": "https://www.youtube.com/api/timedtext?v=eRsGyueVLvQ&ei=x&opi=1&exp=xpe&xoaf=5&hl=en&ip=0.0.0.0&ipbits=0&expire=1&sparams=ip,ipbits,expire,v,ei,opi,exp,xoaf&signature=EF.GH&key=yt8&lang=en&fmt=srv3",
+     "name": { "simpleText": "English" },
+     "vssId": ".en",
+     "languageCode": "en",
+     "isTranslatable": true,
+     "trackName": ""
+    },
+    {
+     "baseUrl": "https://www.youtube.com/api/timedtext?v=eRsGyueVLvQ&ei=x&opi=1&xoaf=5&hl=en&expire=1&signature=IJ.KL&key=yt8&lang=en-GB&name=CC",
+     "name": { "simpleText": "English (United Kingdom) - CC" },
+     "vssId": ".en-GB.CC",
+     "languageCode": "en-GB",
+     "isTranslatable": true,
+     "trackName": "CC"
+    },
+    {
+     "baseUrl": "https://www.youtube.com/api/timedtext?v=eRsGyueVLvQ&ei=x&opi=1&xoaf=5&hl=en&expire=1&signature=MN.OP&key=yt8&lang=fr",
+     "name": { "simpleText": "French" },
+     "vssId": ".fr",
+     "languageCode": "fr",
+     "isTranslatable": true,
+     "trackName": ""
+    }
+   ],
+   "audioTracks": [{ "captionTrackIndices": [0, 1, 2, 3] }],
+   "translationLanguages": [{ "languageCode": "en", "languageName": { "simpleText": "English" } }],
+   "defaultAudioTrackIndex": 0
+  }
+ }
+}

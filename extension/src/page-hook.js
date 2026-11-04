@@ -13,6 +13,8 @@
 //     and JSON.parse'd it; see the JSON.parse wrapper below.
 //  3. The Netflix seek bridge: assigning video.currentTime directly crashes
 //     the Netflix player (error M7375), so seeks go through its own API.
+//  4. On YouTube (and Vimeo embeds), the player data the page carries inline
+//     for its first video, read once when the document has been parsed.
 //
 // Talking to the content script: nothing is broadcast with window.postMessage.
 // Every window 'message' listener in the page (the site's own schedulers,
@@ -21,7 +23,7 @@
 // (a 'cleancut:connect' DOM event); findings go only through that port, and
 // the few found before it connects are kept (bounded) and handed over then.
 
-import { MAX_INSPECT_BYTES, classifyResponse, mayMatter, netflixManifestInfo } from '../../shared/sources.js';
+import { MAX_INSPECT_BYTES, classifyResponse, manifestHasText, mayMatter, netflixManifestInfo, vimeoConfigInfo, youtubePlayerInfo } from '../../shared/sources.js';
 
 (() => {
   if (window.__cleancutHooked) return;
@@ -43,6 +45,9 @@ import { MAX_INSPECT_BYTES, classifyResponse, mayMatter, netflixManifestInfo } f
     }
   };
   const forward = (url, kind, body) => send({ type: 'response', payload: { url, kind, body } });
+  // HLS/DASH manifests are passed on only when they list subtitle renditions:
+  // a live stream's media playlists are fetched every few seconds.
+  const worthForwarding = (kind, body) => kind !== 'manifest' || manifestHasText(body);
 
   // ---- debug log (off unless the viewer turned it on in the popup) ----------
   // Records what the player does, as shapes and counts only: field names of
@@ -137,6 +142,28 @@ import { MAX_INSPECT_BYTES, classifyResponse, mayMatter, netflixManifestInfo } f
     };
   }
 
+  // ---- YouTube and Vimeo: the player data the page itself carries ------------
+  // The first video of a page load is described inline (not fetched):
+  // ytInitialPlayerResponse on YouTube, window.playerConfig in a Vimeo embed.
+  // Read once, when the document has been parsed. In-app navigations on
+  // YouTube hand the new player response to the 'yt-navigate-finish' event
+  // (and fetch it from /youtubei/v1/player, which mayMatter lets through).
+  // Only the video id, its title and its English caption track URLs are sent.
+  const playerData = (extract, data, via) => {
+    try {
+      const info = data && extract(data);
+      if (!info) return;
+      dbg({ ev: 'player-data', via, id: info.movieId, tracks: info.tracks.length });
+      send({ type: 'tracks', payload: { ...info, via } });
+    } catch { /* never break the page */ }
+  };
+  if (/(^|\.)youtube(-nocookie)?\.com$/.test(HOST)) {
+    document.addEventListener('DOMContentLoaded', () => playerData(youtubePlayerInfo, window.ytInitialPlayerResponse, 'page'), { once: true });
+    document.addEventListener('yt-navigate-finish', (e) => playerData(youtubePlayerInfo, e?.detail?.response?.playerResponse, 'navigate'));
+  } else if (HOST === 'player.vimeo.com') {
+    document.addEventListener('DOMContentLoaded', () => playerData(vimeoConfigInfo, window.playerConfig, 'page'), { once: true });
+  }
+
   window.fetch = function fetch(input, init) {
     const pending = origFetch.call(window, input, init);
     let url;
@@ -161,7 +188,9 @@ import { MAX_INSPECT_BYTES, classifyResponse, mayMatter, netflixManifestInfo } f
           length: Number(res.headers.get('content-length') || 0),
         });
         // 'peek' (unlabelled binary) is never cloned from fetch: it costs more than it finds.
-        if (kind === 'json' || kind === 'subtitle') res.clone().text().then((t) => forward(url, kind, t), () => {});
+        if (kind === 'json' || kind === 'subtitle' || kind === 'manifest') {
+          res.clone().text().then((t) => worthForwarding(kind, t) && forward(url, kind, t), () => {});
+        }
       } catch { /* never break the player */ }
     }, () => {});
     return pending; // the player gets the very same promise
@@ -208,10 +237,11 @@ import { MAX_INSPECT_BYTES, classifyResponse, mayMatter, netflixManifestInfo } f
         binary,
       });
       if (!kind) return;
-      if (rt === 'json') return forward(url, kind, this.response);
-      if (rt === '' || rt === 'text') return forward(url, kind, this.responseText);
+      if (rt === 'json') return kind !== 'manifest' && forward(url, kind, this.response);
+      if (rt === '' || rt === 'text') return worthForwarding(kind, this.responseText) && forward(url, kind, this.responseText);
       if (binary && kind !== 'peek' && this.response && this.response.byteLength <= MAX_INSPECT_BYTES) {
-        forward(url, kind, new TextDecoder().decode(this.response));
+        const text = new TextDecoder().decode(this.response);
+        if (worthForwarding(kind, text)) forward(url, kind, text);
       }
     } catch { /* ignore */ }
   }

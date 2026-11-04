@@ -1,0 +1,47 @@
+{
+ "request": {
+  "text_tracks": [
+   {
+    "id": 170,
+    "lang": "de",
+    "url": "https://captions.vimeo.com/captions/170.vtt?expires=1&sig=x",
+    "kind": "subtitles",
+    "label": "Deutsch",
+    "provenance": "user_uploaded",
+    "default": true
+   },
+   {
+    "id": 171,
+    "lang": "es",
+    "url": "https://captions.vimeo.com/captions/171.vtt?expires=1&sig=x",
+    "kind": "subtitles",
+    "label": "Español",
+    "provenance": "user_uploaded"
+   },
+   {
+    "id": 140662,
+    "lang": "en",
+    "url": "https://captions.vimeo.com/captions/140662.vtt?expires=1&sig=x",
+    "kind": "subtitles",
+    "label": "English",
+    "provenance": "user_uploaded"
+   },
+   {
+    "id": 4678937,
+    "lang": "fr",
+    "url": "https://captions.vimeo.com/captions/4678937.vtt?expires=1&sig=x",
+    "kind": "subtitles",
+    "label": "Français",
+    "provenance": "user_uploaded"
+   }
+  ]
+ },
+ "video": {
+  "id": 76979871,
+  "title": "The New Vimeo Player (You Know, For Videos)",
+  "duration": 62,
+  "owner": {
+   "name": "Vimeo"
+  }
+ }
+}

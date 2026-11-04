@@ -2,30 +2,26 @@
 // content time and seek on each site. DOM selectors for streaming sites drift;
 // each adapter prefers data captured from the player's own API responses
 // (via page-hook) and falls back to the DOM.
+//
+// The interface (index.js uses nothing else):
+//   platform          id from shared/platforms.js
+//   fillsViewport     the player fills the window: the overlay never measures the video
+//   captionSelector   the player's caption container, hidden while a line is muted
+//   onPageMessage(type, payload)   data network.js found in the player's responses
+//   findVideo()       the <video> playing a title, or null (browse pages, previews)
+//   identify()        { platform, platformId, meta: { series, season, episode,
+//                     name, year, runtime, type }, canonicalKey } or null
+//   currentTime(video), seek(video, seconds) → Promise<boolean> (false: the
+//                     player refused; index.js mutes and hides the scene instead)
+//   readTextTracks(video)  optional: cues the <video> exposes itself
+//   isAdPlaying()     optional: true while an ad plays; CleanCut then does nothing
 
 import { canonicalKey, parseEpisodeLabel } from '../../../shared/identity.js';
+import { platformForHost } from '../../../shared/platforms.js';
 import { parseClock } from '../../../shared/subtitles.js';
-
-/**
- * The main video, chosen without reading layout: by whether it has media
- * loaded and by its own resolution (videoWidth × videoHeight are properties of
- * the stream, not the page, so reading them never forces a reflow).
- */
-function largestVideo(root = document) {
-  let best = null;
-  let bestScore = -1;
-  for (const v of root.querySelectorAll('video')) {
-    if (!(v.currentSrc || v.src || v.srcObject)) continue;
-    const score = (v.readyState > 0 ? 1e9 : 0) + v.videoWidth * v.videoHeight;
-    if (score > bestScore) {
-      best = v;
-      bestScore = score;
-    }
-  }
-  return best;
-}
-
-const text = (sel, root = document) => root.querySelector(sel)?.textContent?.trim() || '';
+import { largestVideo, text } from './adapters/dom.js';
+import { SERVICES, streamingAdapter } from './adapters/streaming.js';
+import { youtubeAdapter } from './adapters/youtube.js';
 
 // ---- Netflix --------------------------------------------------------------
 
@@ -174,9 +170,15 @@ export function genericAdapter() {
   };
 }
 
+/** The adapter for this page, by its host (shared/platforms.js). */
 export function detectAdapter(bridge) {
   const h = location.hostname;
-  if (/(^|\.)netflix\.com$/.test(h)) return netflixAdapter(bridge);
-  if (/(^|\.)primevideo\.com$/.test(h) || /(^|\.)amazon\.[a-z.]+$/.test(h)) return primeAdapter();
+  const id = platformForHost(h)?.id || (/(^|\.)amazon\.[a-z.]+$/.test(h) ? 'prime' : null);
+  if (id === 'netflix') return netflixAdapter(bridge);
+  if (id === 'prime') return primeAdapter();
+  if (id === 'youtube') return youtubeAdapter();
+  if (id && SERVICES[id]) return streamingAdapter(SERVICES[id]);
+  // A listed platform without its own config yet: the generic adapter under its id.
+  if (id && id !== 'web') return streamingAdapter({ id, seek: 'currentTime', textTracks: true });
   return genericAdapter();
 }

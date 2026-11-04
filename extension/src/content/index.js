@@ -512,6 +512,7 @@ import { Flagger, LAST_SECONDS } from './flagger.js';
     }
   }
   function tickOnce(event) {
+    if (adapter.isAdPlaying?.()) return restorePlayback(); // never skip, mute or hide during an ad (adapters.js)
     const video = state.video;
     if (!video || !state.plan || !state.settings.enabled || !video.isConnected || video.readyState === 0) {
       if (!state.settings.enabled) restorePlayback();

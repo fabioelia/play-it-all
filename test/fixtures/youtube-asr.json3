@@ -1,0 +1,11 @@
+{"wireMagic":"pb3","pens":[{}],"wsWinStyles":[{},{"mhModeHint":2,"juJustifCode":0,"sdScrollDir":3}],"wpWinPositions":[{},{"apPoint":6,"ahHorPos":20,"avVerPos":100,"rcRows":2,"ccCols":40}],
+"events":[
+{"tStartMs":0,"dDurationMs":888000,"id":1,"wpWinPosId":1,"wsWinStyleId":1},
+{"tStartMs":1200,"dDurationMs":3400,"wWinId":1,"segs":[{"utf8":"[Music]"}]},
+{"tStartMs":5000,"dDurationMs":4100,"wWinId":1,"segs":[{"utf8":"what","acAsrConf":0},{"utf8":" are","tOffsetMs":240,"acAsrConf":0},{"utf8":" you","tOffsetMs":480,"acAsrConf":0},{"utf8":" doing","tOffsetMs":720,"acAsrConf":0}]},
+{"tStartMs":7020,"dDurationMs":2080,"wWinId":1,"aAppend":1,"segs":[{"utf8":"\n"}]},
+{"tStartMs":7030,"dDurationMs":4000,"wWinId":1,"segs":[{"utf8":"get","acAsrConf":0},{"utf8":" the","tOffsetMs":200,"acAsrConf":0},{"utf8":" [ __ ]","tOffsetMs":400,"acAsrConf":0},{"utf8":" out","tOffsetMs":700,"acAsrConf":0}]},
+{"tStartMs":11000,"dDurationMs":2500,"wWinId":1,"segs":[{"utf8":"Tom &amp; Jerry"}]},
+{"tStartMs":14000,"dDurationMs":2000,"wWinId":1,"segs":[{"utf8":"we have to go"}]},
+{"tStartMs":17000,"dDurationMs":2000,"wWinId":1,"segs":[{"utf8":"[Applause]"}]}
+]}

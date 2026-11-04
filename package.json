@@ -2,7 +2,7 @@
   "name": "cleancut",
   "version": "0.1.0",
   "private": true,
-  "description": "Watch any show at the rating you choose: a browser extension that skips, mutes or hides explicit scenes on Netflix and Prime Video, using a community catalog of timestamped tags kept on GitHub.",
+  "description": "Watch any show at the rating you choose: a browser extension that skips, mutes or hides explicit scenes on Netflix, Prime Video, YouTube, Disney+, Max, Hulu and other streaming sites, using a community catalog of timestamped tags kept on GitHub.",
   "type": "module",
   "license": "MIT",
   "engines": {
@@ -20,6 +20,8 @@
     "demo:video": "sh scripts/make-demo-video.sh",
     "test": "node --disable-warning=ExperimentalWarning --test test/*.test.js",
     "test:e2e": "npm run build && node --disable-warning=ExperimentalWarning test/e2e/extension.e2e.mjs",
+    "test:e2e:youtube": "npm run build && node --disable-warning=ExperimentalWarning test/e2e/youtube.e2e.mjs",
+    "test:adapters": "node --disable-warning=ExperimentalWarning test/e2e/adapters.e2e.mjs",
     "bench": "npm run build && node --disable-warning=ExperimentalWarning test/perf/netflix-sim.mjs",
     "bench:playback": "npm run build && node --disable-warning=ExperimentalWarning test/perf/playback-sim.mjs",
     "bench:real": "npm run build && node --disable-warning=ExperimentalWarning test/perf/netflix-real.mjs",
