@@ -307,12 +307,31 @@ try {
   await step('"Share on GitHub" opens a prefilled issue the catalog bot accepts', async () => {
     const tabId = await worker.evaluate(async () => (await chrome.tabs.query({ url: 'http://localhost/*' }))[0].id);
     const popup = await context.newPage();
+    const popupLog = [];
+    popup.on('console', (m) => popupLog.push(`${m.type()}: ${m.text()}`));
+    popup.on('pageerror', (e) => popupLog.push(`pageerror: ${e.message}`));
     await popup.goto(`chrome-extension://${extensionId}/popup.html?tab=${tabId}`);
     const share = popup.locator('#share');
     await share.waitFor();
     assert.match(await share.textContent(), /Share 1 tag on GitHub/);
+    // Record the address the popup asks Chrome to open. (A tab opened with
+    // chrome.tabs.create can start loading before Playwright's routes attach to it,
+    // and without the "tabs" permission its URL is hidden from the extension.)
+    await popup.evaluate(() => {
+      window.__opened = [];
+      const create = chrome.tabs.create.bind(chrome.tabs);
+      chrome.tabs.create = (props, ...rest) => {
+        window.__opened.push(props?.url || '');
+        return create(props, ...rest);
+      };
+    });
     await share.click();
-    const url = new URL(await waitFor(() => githubRequests.find((u) => u.includes('/issues/new')), { what: 'GitHub issue link' }));
+    const link = await waitFor(async () => (await popup.evaluate(() => window.__opened)).find((u) => u.includes('/issues/new'))
+      || githubRequests.find((u) => u.includes('/issues/new')), { what: 'GitHub issue link' })
+      .catch(async (e) => {
+        throw new Error(`${e.message}; popup note: "${await popup.locator('#cuts-note').textContent().catch(() => '?')}"; log: ${popupLog.join(' | ')}`);
+      });
+    const url = new URL(link);
     if (process.env.DEBUG_E2E) console.log('      link:', githubRequests.map((u) => u.slice(0, 300)));
     for (const p of context.pages()) if (p !== page && p !== popup) await p.close();
     await popup.close();
