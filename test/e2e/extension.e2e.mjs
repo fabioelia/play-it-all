@@ -395,13 +395,10 @@ try {
     await popup.waitForTimeout(300);
     assert.equal(await popup.locator('#upcoming-card').isHidden(), false, 'title cards shown');
     assert.equal(await popup.locator('#lists-card').isHidden(), true, 'no skip lists card without a list for this title');
-    // Flagging happens on the player: the button asks the page to open its flagger and
-    // closes the popup, or says why it could not (a content script without a flagger).
-    await popup.locator('#flag').click();
-    await Promise.race([
-      popup.waitForEvent('close'),
-      popup.locator('#cuts-note', { hasText: /\S/ }).waitFor(),
-    ]);
+    // Flagging happens on the player: with a video playing, the button opens the
+    // page's flagger and the popup closes itself.
+    await Promise.all([popup.waitForEvent('close', { timeout: 5000 }), popup.locator('#flag').click()]);
+    assert.ok(popup.isClosed(), 'popup closes after opening the flagger');
     const options = await context.newPage();
     options.on('pageerror', (e) => perrs.push(e.message));
     await options.goto(`chrome-extension://${extensionId}/options.html`);
