@@ -1,7 +1,8 @@
 import { ACTIONS, ACTION_LABELS, CATEGORIES, PRESETS, PRESET_ORDER, SEVERITIES, defaultProfile } from '../../../shared/ratings.js';
 import { formatTime } from '../../../shared/identity.js';
 import { platformName } from '../../../shared/platforms.js';
-import { CATEGORY_COLORS } from '../content/overlay.js';
+// The category colours and note icons are the on-player UI's, so both read the same.
+import { CATEGORY_COLORS, NOTE_ICONS as ICONS } from '../content/overlay.js';
 
 const $ = (id) => document.getElementById(id);
 const LEVEL = { 0: 'None', 1: 'Mild', 2: 'Moderate', 3: 'Any' };
@@ -10,11 +11,6 @@ const CATEGORY_LABEL = Object.fromEntries(CATEGORIES.map((c) => [c.id, c.label])
 const cap = (s = '') => s.charAt(0).toUpperCase() + s.slice(1);
 const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
 const signed = (n) => `${n >= 0 ? '+' : '−'}${Math.abs(n).toFixed(1)}s`;
-
-const ICONS = {
-  warn: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.8 15 14H1L8 1.8Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M8 6.2v3.6M8 11.6v.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
-  info: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 7.2v4M8 4.6v.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
-};
 
 let settings;
 let tab;
@@ -52,7 +48,7 @@ function redraw(name, signature, draw) {
 
 // ---- rating controls ----------------------------------------------------------
 
-const presetLabel = (id) => (id === 'unfiltered' ? 'Off' : id === 'custom' ? 'Custom' : PRESETS[id]?.label || 'Custom');
+const presetLabel = (id) => (id === 'custom' ? 'Custom' : PRESETS[id]?.label || 'Custom');
 
 function choosePreset(id) {
   if (id === 'custom' && settings.profile.preset !== 'custom') {
@@ -76,7 +72,7 @@ function renderPresets() {
     b.tabIndex = on ? 0 : -1;
     b.dataset.preset = id;
     b.textContent = presetLabel(id);
-    b.title = id === 'unfiltered' ? 'Unfiltered: nothing is cut' : id === 'custom' ? 'Pick limits per category' : `Cut to ${PRESETS[id].label}`;
+    b.title = id === 'unfiltered' ? 'Nothing is cut' : id === 'custom' ? 'Set a limit for each category' : `Cut to ${PRESETS[id].label}`;
     b.addEventListener('click', () => choosePreset(id));
     box.append(b);
   }
@@ -233,8 +229,8 @@ function renderPage() {
     $('now-title').textContent = web ? 'CleanCut isn’t running on this page' : 'Nothing playing here';
     $('now-title').removeAttribute('title');
     setHint(web
-      ? 'It works on Netflix and Prime Video. If this page has a video, you can turn it on here.'
-      : 'Open Netflix or Prime Video and start an episode.');
+      ? 'It works on Netflix, Prime Video, YouTube, Disney+ and other streaming sites. If this page has a video, you can turn it on here.'
+      : 'Open a streaming site, such as Netflix or YouTube, and start an episode.');
     setStatus(null);
     renderNotes([]);
     return;
@@ -268,34 +264,68 @@ function renderPage() {
   $('stat-cuts').textContent = String(live.length);
   $('stat-time').textContent = formatTime(skipped);
 
+  // Where this title's flags come from.
   const c = page.counts;
   const parts = [page.catalog ? `${c.community} from the catalog` : 'Not in the catalog yet'];
   parts.push(page.subtitle ? `${c.subtitles} from subtitles` : 'subtitles not scanned yet');
-  if (c.local) parts.push(`${c.local} yours`);
+  if (c.local) parts.push(`${c.local} from you`);
   $('now-sources').textContent = parts.join(' · ');
 
   const notes = [...off];
   const cat = page.catalog;
-  if (offline) notes.push(['warn', 'Can’t reach the catalog right now. Using the saved copy and your own tags.']);
-  if (cat?.timing === 'unsynced') notes.push(['warn', `These tags were timed on ${siteName(cat.timeline)} and may be off here. Turn on English subtitles to line them up, or adjust the timing below.`]);
-  if (cat?.timing === 'aligned') notes.push(['info', `Tags lined up for ${siteName()} using subtitle timing (${signed(cat.alignment.offset)}).`]);
-  if (cat?.via === 'alias' || cat?.via === 'title') notes.push(['info', `Matched to the catalog by title (${cat.key}).`]);
-  if (!page.subtitle && page.platform !== 'web' && cat?.timing !== 'unsynced') notes.push(['info', 'Tip: turn on English [CC] subtitles once so CleanCut can scan ahead.']);
+  if (offline) notes.push(['warn', 'Can’t reach the catalog right now. Using the saved copy and your own flags.']);
+  if (cat?.timing === 'unsynced') notes.push(['warn', `These flags were timed on ${siteName(cat.timeline)}, so cuts may come early or late here. Turn on English subtitles to line them up, or adjust Timing below.`]);
+  if (cat?.timing === 'aligned') notes.push(['info', `Flags lined up with ${siteName()} using its subtitles (${signed(cat.alignment.offset)}).`]);
+  if (cat?.via === 'alias' || cat?.via === 'title') notes.push(['info', 'Found in the catalog by its title.']);
+  if (!page.subtitle && page.platform !== 'web' && cat?.timing !== 'unsynced') notes.push(['info', 'Tip: turn on English subtitles [CC] once so CleanCut can scan ahead.']);
   renderNotes(notes);
 
   $('offset').textContent = signed(page.offset);
   $('offset-summary').textContent = signed(page.offset);
+  // Timing only matters when there is something to time, or it was already changed.
+  $('sync-row').hidden = !(page.actions.length || page.offset !== 0 || cat?.timing === 'unsynced');
   if (!syncShown) {
     syncShown = true;
     $('sync-row').open = cat?.timing === 'unsynced' || page.offset !== 0;
   }
-  $('list-note').textContent = page.activeList ? `Using “${page.activeList.name}”` : '';
-  $('list-note').title = page.activeList ? `The skip list “${page.activeList.name}” sets the rating for this title` : '';
+  renderListNote(listPreset);
 
   renderUpcoming();
   renderLists();
   $('share').hidden = !page.unshared;
-  $('share').textContent = `Share ${page.unshared} tag${page.unshared === 1 ? '' : 's'} on GitHub`;
+  $('share').textContent = `Share ${plural(page.unshared, 'flag')} on GitHub`;
+}
+
+/**
+ * A skip list in use decides what is cut on this title, while the rating
+ * buttons keep showing the viewer's own rating: say which is which.
+ */
+function renderListNote(listPreset) {
+  const box = $('list-note');
+  const active = page?.activeList;
+  box.hidden = !active;
+  if (!active) {
+    delete drawn['list-note'];
+    return box.replaceChildren();
+  }
+  const rating = listPreset ? ` (${presetLabel(listPreset)})` : '';
+  const where = scopeLabel(active.scope);
+  const text = where === 'all titles'
+    ? `The skip list “${active.name}”${rating} decides what’s cut on every title. The buttons show your own rating, used again once you stop.`
+    : `For ${where}, the skip list “${active.name}”${rating} decides what’s cut. The buttons show your own rating, used everywhere else.`;
+  redraw('list-note', [text], () => {
+    const stop = Object.assign(document.createElement('button'), { className: 'link', textContent: 'Stop using the list' });
+    stop.addEventListener('click', stopList);
+    const body = document.createElement('span');
+    body.append(Object.assign(document.createElement('span'), { textContent: `${text} ` }), stop);
+    box.innerHTML = ICONS.info;
+    box.append(body);
+  });
+}
+
+async function stopList() {
+  await chrome.runtime.sendMessage({ type: 'stopList', scopeKeys: scopeKeys() });
+  setTimeout(refreshPage, 150);
 }
 
 /** One line saying how far subtitle scan-ahead got, so a report can say where it stopped. */
@@ -318,7 +348,9 @@ function renderUpcoming() {
   const regions = page.actions;
   const letPlay = regions.filter((r) => disabled.has(r.key)).length;
   $('skipped').textContent = letPlay ? `${letPlay} set to play` : '';
-  const sig = [regions.map((r) => [r.key, r.end, disabled.has(r.key), r.end < page.time]), page.flagged.length];
+  // Where the playhead is: a cut already behind it, or the one it is in.
+  const when = (r) => (r.end < page.time ? 'past' : r.start <= page.time ? 'now' : '');
+  const sig = [regions.map((r) => [r.key, r.end, disabled.has(r.key), when(r)]), page.flagged.length];
   redraw('cuts', sig, () => {
     const ol = $('upcoming');
     ol.replaceChildren();
@@ -330,10 +362,10 @@ function renderUpcoming() {
       if (page.flagged.length) {
         head.textContent = 'Nothing to cut at this rating.';
         li.append(head, suggested
-          ? `${plural(suggested, 'unsure detection')} ${suggested === 1 ? 'is' : 'are'} marked on the player’s timeline.`
+          ? `The subtitles hint at ${plural(suggested, 'more scene')}, too unsure to cut. ${suggested === 1 ? 'It’s' : 'They’re'} marked on the player’s timeline.`
           : 'Pick a stricter rating to cut more.');
       } else {
-        head.textContent = 'No tags for this title yet.';
+        head.textContent = 'No flags for this title yet.';
         li.append(head, 'Spot something? Flag it on the player and it’s cut for you right away.');
       }
       ol.append(li);
@@ -343,13 +375,19 @@ function renderUpcoming() {
       const isOff = disabled.has(r.key);
       const li = document.createElement('li');
       if (isOff) li.classList.add('off');
-      if (r.end < page.time) li.classList.add('past');
+      const at = when(r);
+      if (at) li.classList.add(at);
       const dot = document.createElement('span');
       dot.className = 'dot';
       dot.style.background = CATEGORY_COLORS[r.reasons[0]?.category] || '#999';
-      const when = document.createElement('span');
-      when.className = 'when';
-      when.textContent = `${formatTime(r.start)}–${formatTime(r.end)}`;
+      const time = document.createElement('span');
+      time.className = 'when';
+      time.textContent = `${formatTime(r.start)}–${formatTime(r.end)}`;
+      // Said in words, not only by dimming the row.
+      const state = document.createElement('span');
+      state.className = 'state';
+      state.textContent = at === 'past' ? ' Earlier' : at === 'now' ? ' Now' : ''; // the space keeps screen readers from running it into the time
+      time.append(state);
       const what = document.createElement('span');
       what.className = 'what';
       const name = document.createElement('b');
@@ -361,14 +399,14 @@ function renderUpcoming() {
       const btn = document.createElement('button');
       btn.className = 'btn toggle';
       btn.textContent = isOff ? 'Cut again' : 'Let play';
-      btn.title = isOff ? 'Filter this scene again' : 'Let this scene play (this session)';
+      btn.title = isOff ? 'Cut this scene again' : 'Let this scene play this time';
       btn.addEventListener('click', async () => {
         page = (await toContent({ type: 'toggleRegion', key: r.key })) || page;
         renderPage();
         // The row was redrawn: keep the keyboard where it was.
         $('upcoming').children[regions.indexOf(r)]?.querySelector('button')?.focus();
       });
-      li.append(dot, when, what, btn);
+      li.append(dot, time, what, btn);
       ol.append(li);
     }
   });
@@ -389,7 +427,8 @@ function scopeKeyFor(list) {
 }
 
 function scopeLabel(scope = '') {
-  if (scope === '*') return 'all titles';
+  if (scope === '*' || scope === 'everything') return 'all titles';
+  if (scope === 'this title') return 'this title'; // stored by older versions
   if (scope.includes('/')) return 'this episode';
   return page?.catalog?.key === scope ? 'this film' : 'this show';
 }
@@ -408,10 +447,7 @@ function renderLists() {
       const stop = document.createElement('button');
       stop.className = 'link';
       stop.textContent = 'Stop using';
-      stop.addEventListener('click', async () => {
-        await chrome.runtime.sendMessage({ type: 'stopList', scopeKeys: scopeKeys() });
-        setTimeout(refreshPage, 150);
-      });
+      stop.addEventListener('click', stopList);
       $('active-list').replaceChildren(text, stop);
     }
     for (const p of profiles) {
@@ -457,10 +493,14 @@ function note(text, tone) {
 async function openFlagger() {
   note('');
   const res = await toContent({ type: 'openFlagger' });
-  if (res?.error) return note(res.error, 'bad');
+  const ERRORS = {
+    'no video playing': 'Start the video first, then flag the scene on the player.',
+    'ad playing': 'Wait for the ad to end, then flag the scene.',
+  };
+  if (res?.error) return note(ERRORS[res.error] || res.error, 'bad');
   if (res == null) {
     // No content script answered, or one too old to know this message.
-    return note('Couldn’t open the flagger on this player. Reload the page, or use Alt+[ and Alt+] while watching.', 'bad');
+    return note('Couldn’t reach the player. Reload the page, or press Alt+[ and Alt+] while watching.', 'bad');
   }
   window.close();
 }
@@ -470,9 +510,9 @@ async function openOnGitHub(res, setNote) {
   if (!res.prefilled) {
     try {
       await navigator.clipboard.writeText(res.json);
-      setNote('Too long to prefill: the submission is on your clipboard. Paste it into the form that just opened.');
+      setNote('Too long to fill in for you, so it’s on your clipboard. Paste it into the form that just opened.');
     } catch {
-      setNote('Too long to prefill. Copy it from Options → Export instead.');
+      setNote('Too long to fill in for you. Use Export flags in Options and paste the file into the form instead.');
     }
   }
   await chrome.tabs.create({ url: res.url });
@@ -488,7 +528,7 @@ async function bindDebug() {
   };
   show(!!debug);
   if (debug) {
-    $('debug-note').textContent = 'Recording. Save after playing an episode for about 30 seconds.';
+    $('debug-note').textContent = 'Recording. Save the log after playing the episode for about 30 seconds.';
     $('troubleshooting').open = true;
   }
   $('debug-rec').addEventListener('change', async (e) => {
@@ -496,13 +536,13 @@ async function bindDebug() {
     await chrome.storage.local.set({ debug: on });
     show(on);
     $('debug-note').textContent = on
-      ? 'Now reload the Netflix tab, play an episode for about 30 seconds (try turning English [CC] on), then come back and Save.'
+      ? 'Now reload the video’s tab, play the episode for about 30 seconds (try turning English subtitles [CC] on), then come back and save the log.'
       : 'Recording off.';
   });
   $('debug-save').addEventListener('click', async () => {
     const log = await toContent({ type: 'getDebugLog' });
     if (!log || log.error) {
-      $('debug-note').textContent = `No log from this tab${log?.error ? ` (${log.error})` : ''}. Open the Netflix tab first, then reload it.`;
+      $('debug-note').textContent = `No log from this tab${log?.error ? ` (${log.error})` : ''}. Open CleanCut from the video’s tab, after reloading it.`;
       return;
     }
     const name = `cleancut-debug-${new Date().toISOString().replace(/[:T]/g, '-').slice(0, 16)}.json`;

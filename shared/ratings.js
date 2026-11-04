@@ -32,7 +32,8 @@ const t = (nudity, sex, violence, gore, language, drugs, frightening) => ({
 // Thresholds are the maximum severity that still plays.
 //                                 nud sex vio gore lang drug fright
 export const PRESETS = {
-  unfiltered: { label: 'Unfiltered', thresholds: t(3, 3, 3, 3, 3, 3, 3) },
+  // "Uncut", not "Off": the popup's On/Off switch is a different thing (CleanCut does nothing at all).
+  unfiltered: { label: 'Uncut', thresholds: t(3, 3, 3, 3, 3, 3, 3) },
   R: { label: 'R', thresholds: t(2, 2, 3, 2, 3, 3, 3) },
   'PG-13': { label: 'PG-13', thresholds: t(0, 1, 2, 1, 2, 2, 3) },
   PG: { label: 'PG', thresholds: t(0, 0, 1, 0, 1, 1, 2) },
@@ -104,5 +105,5 @@ export function describeProfile(profile) {
   const parts = CATEGORIES.filter((c) => r.thresholds[c.id] < 3).map((c) =>
     r.thresholds[c.id] === 0 ? `no ${c.label.toLowerCase()}` : `≤${SEVERITIES[r.thresholds[c.id]]} ${c.label.toLowerCase()}`,
   );
-  return parts.length ? `Custom (${parts.join(', ')})` : 'Custom (unfiltered)';
+  return parts.length ? `Custom (${parts.join(', ')})` : 'Custom (uncut)';
 }

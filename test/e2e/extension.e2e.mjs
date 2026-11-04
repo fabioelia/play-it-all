@@ -313,7 +313,7 @@ try {
     await popup.goto(`chrome-extension://${extensionId}/popup.html?tab=${tabId}`);
     const share = popup.locator('#share');
     await share.waitFor();
-    assert.match(await share.textContent(), /Share 1 tag on GitHub/);
+    assert.match(await share.textContent(), /Share 1 flag on GitHub/);
     // Record the address the popup asks Chrome to open. (A tab opened with
     // chrome.tabs.create can start loading before Playwright's routes attach to it,
     // and without the "tabs" permission its URL is hidden from the extension.)

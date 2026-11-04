@@ -171,7 +171,7 @@ async function shareTags({ title, sync, label }) {
   const key = titleKey(title.platform, title.platformId);
   const entry = await localEntry(key);
   const pending = (entry?.segments || []).filter((s) => !s.sharedAt);
-  if (!pending.length) return { error: 'no unshared tags for this title' };
+  if (!pending.length) return { error: 'All your flags for this title are already shared.' };
   const submission = {
     cleancut: 1,
     title,
@@ -192,7 +192,7 @@ async function shareList({ name, description, scope, overrides }) {
   const s = await settings();
   const profile = { ...defaultProfile(), ...(s.profile || {}) };
   const id = name.toLowerCase().normalize('NFKD').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
-  if (id.length < 3) return { error: 'give the list a longer name' };
+  if (id.length < 3) return { error: 'Give the list a longer name, with at least 3 letters or numbers.' };
   const list = { id, name, description, scope, settings: { preset: profile.preset, thresholds: profile.thresholds, actions: profile.actions }, overrides };
   return shareLink({ cleancut: 1, list }, `Skip list: ${name}`);
 }
@@ -207,7 +207,8 @@ async function useList({ profile, scopeKey }) {
     author: profile.author,
     settings: profile.settings,
     overrides: profile.overrides,
-    scope: scopeKey === '*' ? 'everything' : 'this title',
+    // What the list was made for ('*', a show, an episode or film key), so the popup can say "for this show".
+    scope: profile.scope || (scopeKey === '*' ? '*' : scopeKey.replace(/^(ck|show):/, '')),
   };
   await chrome.storage.local.set({ activeLists });
   return { ok: true };
@@ -265,7 +266,7 @@ const handlers = {
   status: async (m, sender) => {
     const tabId = sender.tab?.id;
     if (tabId == null) return {};
-    await chrome.action.setBadgeBackgroundColor({ tabId, color: m.enabled ? '#4f7cff' : '#777' });
+    await chrome.action.setBadgeBackgroundColor({ tabId, color: m.enabled ? '#2f5fe3' : '#6f7480' }); // popup.css --accent, --off-dot
     await chrome.action.setBadgeText({ tabId, text: m.enabled ? (m.count ? String(m.count) : '') : 'off' });
     return {};
   },
