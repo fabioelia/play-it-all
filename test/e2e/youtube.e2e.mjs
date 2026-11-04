@@ -195,7 +195,8 @@ try {
       const root = document.querySelector('cleancut-overlay')?.shadowRoot;
       const tl = root?.querySelector('.timeline');
       const box = root?.querySelector('.root');
-      return tl?.classList.contains('show') && box.style.display === 'block' && { marks: tl.querySelectorAll('.mark').length, width: box.style.width, left: box.style.left };
+      // Revealed state lives on the root (it shows the timeline, badge and flag control together).
+      return box?.classList.contains('revealed') && box.style.display === 'block' && { marks: tl.querySelectorAll('.mark').length, width: box.style.width, left: box.style.left };
     }), { what: 'timeline shown' });
     assert.ok(t.marks >= 2, `marks: ${t.marks}`);
     assert.equal(t.width, '854px', 'positioned over the video, not the window');

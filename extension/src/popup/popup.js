@@ -1,5 +1,6 @@
 import { ACTIONS, ACTION_LABELS, CATEGORIES, PRESETS, PRESET_ORDER, SEVERITIES, defaultProfile } from '../../../shared/ratings.js';
 import { formatTime } from '../../../shared/identity.js';
+import { platformName } from '../../../shared/platforms.js';
 import { CATEGORY_COLORS } from '../content/overlay.js';
 
 const $ = (id) => document.getElementById(id);
@@ -173,6 +174,7 @@ function bindAdvanced() {
 
 function siteName(platform = page?.platform) {
   if (SITES[platform]) return SITES[platform];
+  if (platform && platform !== 'web' && platformName(platform) !== platform) return platformName(platform);
   try {
     return new URL(tab.url).host || 'This page';
   } catch {
