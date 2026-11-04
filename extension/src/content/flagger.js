@@ -26,104 +26,111 @@ const ICON = {
   plus: svg('<path d="M12 7v10M7 12h10"/>'),
 };
 
-const FONT = 'system-ui, -apple-system, "Segoe UI", sans-serif';
+// Tokens (--surface, --accent, --r-md, --fs-md…) come from the overlay's
+// .root: the popup's dark theme. A selected choice looks like the popup's
+// rating buttons (accent fill), a primary action like its primary buttons.
 const STYLE = `
-.side button, .side input { font-family: ${FONT}; }
-.side :focus-visible { outline: 2px solid #8ab4ff; outline-offset: 2px; }
+.side button, .side input { font-family: var(--font); }
+.side :focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .side svg { width: 16px; height: 16px; flex: none; }
 
-/* the dock: hidden with the timeline, except while recording */
-.dock { position: relative; display: flex; align-items: center; padding: 4px; border-radius: 999px;
-  background: rgba(18,18,22,.92); border: 1px solid rgba(255,255,255,.16); box-shadow: 0 8px 28px rgba(0,0,0,.45);
+/* the dock: on the rail's centre line, hidden with the timeline, except while recording */
+.dock { grid-row: 2; position: relative; display: flex; align-items: center; padding: 4px; border-radius: 999px;
+  background: var(--surface); border: 1px solid var(--line); box-shadow: var(--shadow);
   opacity: 0; visibility: hidden; transition: opacity .2s, visibility 0s linear .2s; }
 .root.revealed .dock, .dock.recording { opacity: 1; visibility: visible; pointer-events: auto; transition: opacity .2s; }
-.dock[hidden] { display: none; }
+.dock[hidden], .root.ad .dock { display: none; }
 .idle, .rec { display: flex; align-items: center; gap: 2px; }
 .rec, .dock.recording .idle { display: none; }
 .dock.recording .rec { display: flex; }
-.fbtn { all: unset; position: relative; box-sizing: border-box; display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 13px;
-  border-radius: 999px; font: 600 13px/1 ${FONT}; color: #fff; white-space: nowrap; cursor: pointer; }
-.fbtn:hover { background: rgba(255,255,255,.13); }
-.fbtn.quiet { color: rgba(255,255,255,.8); font-weight: 500; }
-.fbtn.quiet:hover { color: #fff; }
-.fbtn.icon { width: 32px; padding: 0; justify-content: center; color: rgba(255,255,255,.8); }
-.fbtn.done { background: #fff; color: #111; padding: 0 14px 0 11px; }
-.fbtn.done:hover { background: #e4e4ea; }
-.sep { width: 1px; height: 18px; background: rgba(255,255,255,.16); margin: 0 1px; }
-.status { display: inline-flex; align-items: center; gap: 8px; padding: 0 10px 0 11px; font: 600 13px/1 ${FONT}; font-variant-numeric: tabular-nums; }
-.status .what { color: rgba(255,255,255,.66); font-weight: 500; }
-.rdot { width: 9px; height: 9px; border-radius: 50%; background: #ff453a; box-shadow: 0 0 0 3px rgba(255,69,58,.28); }
-.dock.recording .rdot { animation: pulse 1.6s ease-in-out infinite; }
-@keyframes pulse { 50% { opacity: .3; } }
+.fbtn { all: unset; position: relative; box-sizing: border-box; display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 12px;
+  border-radius: 999px; font: 600 var(--fs-md)/1 var(--font); color: var(--text); white-space: nowrap; cursor: pointer; }
+.fbtn:hover { background: var(--raised-hover); }
+.fbtn.quiet { font-weight: 500; }
+.fbtn.icon { width: 32px; padding: 0; justify-content: center; color: var(--muted); }
+.fbtn.icon:hover { color: var(--text); }
+.fbtn.primary { background: var(--accent); color: var(--on-accent); padding: 0 14px 0 11px; }
+.fbtn.primary:hover { background: var(--accent-hover); }
+.sep { width: 1px; height: 18px; background: var(--line); margin: 0 1px; }
+.status { display: inline-flex; align-items: center; gap: 8px; padding: 0 10px 0 11px; font: 600 var(--fs-md)/1 var(--font); font-variant-numeric: tabular-nums; }
+.status .what { color: var(--muted); font-weight: 500; }
+/* steady, not pulsing (nothing animates over playing video): the clock beside it shows it is running */
+.rdot { width: 8px; height: 8px; border-radius: 50%; background: #ff453a; box-shadow: 0 0 0 3px rgba(255, 69, 58, .3); }
 /* one-shot ring when the popup sends the viewer here */
-.dock::before { content: ''; position: absolute; inset: -1px; border-radius: inherit; box-shadow: 0 0 0 2px #8ab4ff; opacity: 0; pointer-events: none; }
+.dock::before { content: ''; position: absolute; inset: -1px; border-radius: inherit; box-shadow: 0 0 0 2px var(--focus); opacity: 0; pointer-events: none; }
 .dock.invite::before { animation: ring 1.2s ease-out 2; }
 @keyframes ring { 0% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1.06, 1.4); } }
 
 /* tooltips with the shortcut */
-.tip { position: absolute; top: calc(100% + 12px); right: -4px; display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 10px;
-  border-radius: 8px; background: rgba(8,8,10,.96); border: 1px solid rgba(255,255,255,.12); box-shadow: 0 6px 18px rgba(0,0,0,.4);
-  font: 500 12px/1.2 ${FONT}; color: #fff; white-space: nowrap; opacity: 0; transform: translateY(-3px);
+.tip { position: absolute; top: calc(100% + 10px); right: -4px; display: flex; align-items: center; gap: 10px; padding: 6px 8px 6px 10px;
+  border-radius: var(--r-md); background: var(--surface-solid); border: 1px solid var(--line); box-shadow: var(--shadow);
+  font: 500 var(--fs-sm)/1.2 var(--font); color: var(--text); white-space: nowrap; opacity: 0; transform: translateY(-3px);
   transition: opacity .12s, transform .12s; pointer-events: none; }
 .fbtn:hover .tip, .fbtn:focus-visible .tip { opacity: 1; transform: none; transition-delay: .35s; }
-kbd { font: 600 11px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: 3px 5px; border-radius: 5px;
-  background: rgba(255,255,255,.12); border: 1px solid rgba(255,255,255,.16); color: #fff; }
+.keys { display: inline-flex; align-items: center; gap: 2px; color: var(--muted); }
+/* as in the popup */
+kbd { font: 600 var(--fs-xs)/1 var(--font); padding: 2px 5px; border: 1px solid var(--line-strong); border-bottom-width: 2px; border-radius: 4px;
+  background: var(--raised); color: var(--text); }
 
 /* the picker */
-.picker { position: relative; pointer-events: auto; box-sizing: border-box; width: min(360px, 100%); max-height: 100%;
-  display: flex; flex-direction: column; overflow: hidden; border-radius: 16px;
-  background: rgba(18,18,22,.97); border: 1px solid rgba(255,255,255,.16); box-shadow: 0 18px 50px rgba(0,0,0,.55);
-  font: 14px/1.35 ${FONT}; color: #fff; animation: pop .16s ease-out; }
+.picker { grid-row: 1 / -1; align-self: center; position: relative; pointer-events: auto; box-sizing: border-box; width: min(360px, 100%); max-height: 100%;
+  display: flex; flex-direction: column; overflow: hidden; border-radius: var(--r-lg);
+  background: var(--surface-solid); border: 1px solid var(--line); box-shadow: 0 18px 50px rgba(0, 0, 0, .55);
+  font: var(--fs-md)/1.35 var(--font); color: var(--text); animation: pop .16s ease-out; }
 .picker[hidden] { display: none; }
 @keyframes pop { from { opacity: 0; transform: translateX(10px); } }
 .picker:focus { outline: none; }
-.pbody { min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; padding: 16px 16px 2px; }
-.head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: -2px 0 12px; }
-.title { font-size: 16px; font-weight: 650; letter-spacing: -.01em; }
-.title .len { margin-left: 6px; font-size: 13px; font-weight: 500; color: rgba(255,255,255,.6); font-variant-numeric: tabular-nums; }
-.head .fbtn.icon { margin: 0 -6px 0 0; }
+.pbody { min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-width: thin; padding: 16px 16px 4px; }
+.head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: -4px 0 12px; }
+.title { font-size: var(--fs-lg); font-weight: 650; letter-spacing: -.01em; }
+.title .len { margin-left: 6px; font-size: var(--fs-md); font-weight: 500; color: var(--muted); font-variant-numeric: tabular-nums; }
+.head .fbtn.icon { margin: 0 -8px 0 0; }
 .head .tip { top: calc(100% + 8px); }
-.range { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
-.stepper { display: grid; grid-template-columns: 30px 1fr 30px; align-items: center; height: 44px; padding: 0 4px; border-radius: 11px;
-  background: rgba(255,255,255,.06); border: 1px solid rgba(255,255,255,.09); }
-.stepper .mid { text-align: center; line-height: 1.1; }
-.stepper .lbl { display: block; font-size: 10px; font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: rgba(255,255,255,.5); }
-.stepper .val { font-size: 15px; font-weight: 600; font-variant-numeric: tabular-nums; }
-.step { all: unset; width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; color: rgba(255,255,255,.85); cursor: pointer; }
-.step:hover { background: rgba(255,255,255,.12); color: #fff; }
-.step:disabled { opacity: .28; cursor: default; background: none; }
-.lab { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: rgba(255,255,255,.66); white-space: nowrap; }
-.cats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 14px; }
-.cat { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 9px; min-height: 38px; padding: 5px 12px; border-radius: 10px;
-  background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.08); font: 500 13.5px/1.2 ${FONT}; color: #fff; cursor: pointer; }
-.cat:hover { background: rgba(255,255,255,.13); }
+.range { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 16px; }
+.stepper { display: grid; grid-template-columns: 32px 1fr 32px; align-items: center; height: 46px; padding: 0 4px; border-radius: var(--r-md);
+  background: var(--raised); border: 1px solid var(--line); }
+.stepper .mid { text-align: center; line-height: 1.15; }
+.stepper .lbl { display: block; font-size: var(--fs-xs); font-weight: 650; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.stepper .val { font-size: var(--fs-lg); font-weight: 650; font-variant-numeric: tabular-nums; }
+.step { all: unset; width: 32px; height: 32px; border-radius: var(--r-sm); display: grid; place-items: center; color: var(--text); cursor: pointer; }
+.step:hover { background: var(--raised-hover); }
+.step:disabled { opacity: .3; cursor: default; background: none; }
+.lab { margin: 0 0 8px; font-size: var(--fs-sm); font-weight: 600; color: var(--muted); white-space: nowrap; }
+.cats { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 16px; }
+.cat { all: unset; box-sizing: border-box; display: flex; align-items: center; gap: 9px; min-height: 38px; padding: 6px 12px; border-radius: var(--r-md);
+  background: var(--raised); border: 1px solid transparent; font: 500 var(--fs-md)/1.2 var(--font); color: var(--text); cursor: pointer; }
+.cat:hover { background: var(--raised-hover); }
 .cat:last-child:nth-child(odd) { grid-column: 1 / -1; }
-.sw { width: 10px; height: 10px; border-radius: 50%; flex: none; box-shadow: 0 0 0 1.5px rgba(255,255,255,.28); }
-.cat[aria-checked=true] { background: #fff; border-color: #fff; color: #111; font-weight: 600; }
-.cat[aria-checked=true] .sw { box-shadow: none; }
+.sw { width: 10px; height: 10px; border-radius: 50%; flex: none; box-shadow: 0 0 0 1.5px rgba(255, 255, 255, .3); }
+.cat[aria-checked=true] { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+.cat[aria-checked=true] .sw { box-shadow: 0 0 0 2px #fff; }
 .sev-row { display: flex; align-items: center; gap: 14px; }
 .sev-row .lab { margin: 0; }
-.sev { flex: 1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; padding: 3px; border-radius: 11px; background: rgba(255,255,255,.07); }
-.sev button { all: unset; height: 30px; border-radius: 8px; text-align: center; font: 500 13px/30px ${FONT}; color: rgba(255,255,255,.85); cursor: pointer; }
-.sev button:hover { background: rgba(255,255,255,.1); }
-.sev button[aria-checked=true] { background: #fff; color: #111; font-weight: 600; }
-.note { box-sizing: border-box; display: block; width: 100%; height: 36px; margin: 0 0 10px; padding: 0 10px; border-radius: 9px; outline: none; appearance: none;
-  background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.16); font: 13.5px ${FONT}; color: #fff; }
-.note::placeholder { color: rgba(255,255,255,.42); }
+/* the popup's segmented control */
+.sev { flex: 1; display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; padding: 2px; border-radius: var(--r-md); background: var(--raised); }
+.sev button { all: unset; height: 32px; border-radius: var(--r-sm); text-align: center; font: 600 var(--fs-md)/32px var(--font); color: var(--muted); cursor: pointer; }
+.sev button:hover { color: var(--text); }
+.sev button[aria-checked=true] { background: var(--accent); color: var(--on-accent); box-shadow: 0 1px 2px rgba(0, 0, 0, .25); }
+.note { box-sizing: border-box; display: block; width: 100%; height: 36px; margin: 0 0 10px; padding: 0 10px; border-radius: var(--r-md); outline: none; appearance: none;
+  background: var(--raised); border: 1px solid var(--line-strong); font: var(--fs-md) var(--font); color: var(--text); }
+.note::placeholder { color: var(--muted); }
 .side .note:focus-visible { outline: none; }
-.note:focus { border-color: #8ab4ff; box-shadow: 0 0 0 1px #8ab4ff; }
+.note:focus { border-color: var(--focus); box-shadow: 0 0 0 1px var(--focus); }
 .note[hidden], .add-note[hidden] { display: none; }
 /* the note and buttons stay in view when a short player makes the picker scroll */
 .foot { flex: none; padding: 12px 16px 14px; }
 .actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
-.add-note { all: unset; margin-right: auto; font: 500 13px/1 ${FONT}; color: #8ab4ff; cursor: pointer; padding: 6px 4px; margin-left: -4px; border-radius: 6px; }
+.add-note { all: unset; margin: 0 auto 0 -6px; height: 32px; padding: 0 6px; border-radius: var(--r-sm); font: 500 var(--fs-md)/32px var(--font); color: var(--link); cursor: pointer; }
 .add-note:hover { text-decoration: underline; }
-.btn { all: unset; box-sizing: border-box; height: 36px; padding: 0 16px; border-radius: 10px; font: 600 13.5px/36px ${FONT}; color: #fff; cursor: pointer; }
-.btn.ghost:hover { background: rgba(255,255,255,.1); }
-.btn.primary { background: #3d63e6; }
-.btn.primary:hover { background: #4a70f2; }
-.btn:disabled { opacity: .4; cursor: default; }
-@media (prefers-reduced-motion: reduce) { .dock.recording .rdot, .dock.invite::before, .picker { animation: none; } }
+/* the popup's buttons */
+.btn { all: unset; box-sizing: border-box; height: 36px; padding: 0 14px; border-radius: var(--r-md); border: 1px solid var(--line-strong);
+  font: 550 var(--fs-md)/34px var(--font); color: var(--text); cursor: pointer; }
+.btn:hover { background: var(--raised-hover); }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn.primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.btn:disabled { opacity: .45; cursor: default; }
+.btn.primary:disabled:hover { background: var(--accent); border-color: var(--accent); }
+@media (prefers-reduced-motion: reduce) { .dock.invite::before, .picker { animation: none; } .tip { transition: none; } }
 `;
 
 const el = (tag, cls, html) => {
@@ -133,6 +140,8 @@ const el = (tag, cls, html) => {
   return e;
 };
 const capital = (s) => s.charAt(0).toUpperCase() + s.slice(1);
+/** A shortcut as the popup writes it: <kbd>Alt</kbd>+<kbd>[</kbd>. */
+const keys = (...k) => `<span class="keys">${k.map((x) => `<kbd>${x}</kbd>`).join('+')}</span>`;
 /** "7 s" for short spans, "1:23" for long ones. */
 export const spanText = (s) => (s < 59.5 ? `${Math.max(0, Math.round(s))} s` : formatTime(s));
 
@@ -156,17 +165,17 @@ export class Flagger {
     this.dock = el('div', 'dock', `
       <div class="idle">
         <button class="fbtn flag-start" aria-label="Flag a scene, starting now (Alt+[)" aria-keyshortcuts="Alt+[">
-          ${ICON.flag}<span>Flag scene</span><span class="tip" aria-hidden="true">Mark where the scene starts<kbd>Alt+[</kbd></span></button>
+          ${ICON.flag}<span>Flag scene</span><span class="tip" aria-hidden="true">Mark where the scene starts${keys('Alt', '[')}</span></button>
         <span class="sep" aria-hidden="true"></span>
         <button class="fbtn quiet flag-last" aria-label="Flag the last ${LAST_SECONDS} seconds (Alt+])" aria-keyshortcuts="Alt+]">
-          ${ICON.back}<span>Last ${LAST_SECONDS} s</span><span class="tip" aria-hidden="true">Flag what just happened<kbd>Alt+]</kbd></span></button>
+          ${ICON.back}<span>Last ${LAST_SECONDS} s</span><span class="tip" aria-hidden="true">Flag what just played${keys('Alt', ']')}</span></button>
       </div>
       <div class="rec">
         <span class="status"><span class="rdot" aria-hidden="true"></span><span class="what">Flagging</span><span class="elapsed">0:00</span></span>
-        <button class="fbtn done flag-done" aria-label="Done: the scene ends here (Alt+])" aria-keyshortcuts="Alt+]">
-          ${ICON.check}<span>Done</span><span class="tip" aria-hidden="true">The scene ends here<kbd>Alt+]</kbd></span></button>
+        <button class="fbtn primary flag-done" aria-label="Done: the scene ends here (Alt+])" aria-keyshortcuts="Alt+]">
+          ${ICON.check}<span>Done</span><span class="tip" aria-hidden="true">The scene ends here${keys('Alt', ']')}</span></button>
         <button class="fbtn icon flag-cancel" aria-label="Cancel flagging (Escape)" aria-keyshortcuts="Escape">
-          ${ICON.close}<span class="tip" aria-hidden="true">Cancel<kbd>Esc</kbd></span></button>
+          ${ICON.close}<span class="tip" aria-hidden="true">Cancel${keys('Esc')}</span></button>
       </div>`);
     this.dock.setAttribute('role', 'group');
     this.dock.setAttribute('aria-label', 'CleanCut: flag a scene');
@@ -263,7 +272,7 @@ export class Flagger {
     p.innerHTML = `<div class="pbody">
       <div class="head">
         <div class="title" id="cc-flag-title">Flag this scene<span class="len"></span></div>
-        <button class="fbtn icon close" aria-label="Cancel (Escape)">${ICON.close}<span class="tip" aria-hidden="true">Cancel<kbd>Esc</kbd></span></button>
+        <button class="fbtn icon close" aria-label="Cancel (Escape)">${ICON.close}<span class="tip" aria-hidden="true">Cancel${keys('Esc')}</span></button>
       </div>
       <div class="range">${stepper('start', 'Start')}${stepper('end', 'End')}</div>
       <div class="lab" id="cc-flag-cat">What’s in it?</div>
@@ -272,7 +281,7 @@ export class Flagger {
       </div>
       <div class="foot">
         <input class="note" type="text" maxlength="280" hidden aria-label="Note (optional)" placeholder="Note (optional), e.g. “bar fight”">
-        <div class="actions"><button class="add-note">+ Add a note</button><button class="btn ghost cancel">Cancel</button><button class="btn primary save" disabled>Save flag</button></div>
+        <div class="actions"><button class="add-note">+ Add a note</button><button class="btn cancel">Cancel</button><button class="btn primary save" disabled>Save flag</button></div>
       </div>`;
     const cats = p.querySelector('.cats');
     for (const c of CATEGORIES) {

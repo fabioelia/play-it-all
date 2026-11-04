@@ -369,7 +369,7 @@ try {
   await step('tags timed on another service are synced from subtitle timing', async () => {
     await useCatalog(XPLAT);
     await openDemo();
-    await page.locator('cleancut-overlay .toast', { hasText: 'Synced 2 tags' }).waitFor({ timeout: 10_000 });
+    await page.locator('cleancut-overlay .toast', { hasText: 'Synced 2 flags' }).waitFor({ timeout: 10_000 });
     await waitFor(async () => /4 cuts/.test(await badge()), { what: 'badge with 4 cuts after sync' });
     await playFrom(17.5);
     const seek = await waitFor(async () => (await autoSeeks()).find((x) => x.to >= 29.9), { what: 'synced skip past 0:30' });

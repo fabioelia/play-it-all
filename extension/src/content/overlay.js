@@ -1,7 +1,14 @@
-// On-player UI in a shadow root: toasts ("Skipped 0:42 · Undo") top right, a
-// timeline strip of tagged segments along the bottom, and a rail on the right
-// edge, clear of the site's back button and control bar, that holds the
-// status badge and the flag control (flagger.js).
+// On-player UI in a shadow root. Everything CleanCut shows on a player lives
+// in one place, a rail on the right edge of the picture, vertically centred:
+// the middle band of the frame is the one part none of the supported sites
+// puts controls in (Netflix and Prime keep theirs along the top and bottom
+// edges, YouTube along the bottom and, in fullscreen, the top). From the top:
+// toasts ("Skipped 0:10 · Undo"), the status badge, the flag control
+// (flagger.js) at the centre, and the flag picker over all of them. A timeline
+// strip of flagged scenes runs along the bottom edge.
+//
+// Colours, radii and type are the popup's dark theme (popup.css), so the
+// player and the popup read as one product.
 
 export const CATEGORY_COLORS = {
   nudity: '#e0569b',
@@ -13,34 +20,78 @@ export const CATEGORY_COLORS = {
   frightening: '#5e35b1',
 };
 
+/** The popup's note icons, also used by toasts that are not about a category. */
+export const NOTE_ICONS = {
+  warn: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.8 15 14H1L8 1.8Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M8 6.2v3.6M8 11.6v.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  info: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 7.2v4M8 4.6v.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+};
+
 const STYLE = `
 :host { all: initial; }
-.root { position: fixed; pointer-events: none; z-index: 2147483646; font: 14px/1.35 system-ui, -apple-system, "Segoe UI", sans-serif; color: #fff;
-  -webkit-font-smoothing: antialiased; }
-.toasts { position: absolute; top: 16px; right: 16px; display: flex; flex-direction: column; gap: 8px; align-items: flex-end; max-width: 60%; }
-.toast { pointer-events: auto; background: rgba(18,18,22,.92); border: 1px solid rgba(255,255,255,.14); border-radius: 12px;
-  padding: 9px 12px; display: flex; gap: 10px; align-items: center; box-shadow: 0 6px 24px rgba(0,0,0,.4); animation: in .18s ease-out; }
-.toast .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; align-self: flex-start; margin-top: 6px; }
+.root {
+  /* popup.css, dark theme */
+  --surface: rgba(25, 26, 32, .94);
+  --surface-solid: rgba(25, 26, 32, .98);
+  --raised: rgba(255, 255, 255, .08);
+  --raised-hover: rgba(255, 255, 255, .14);
+  --line: rgba(255, 255, 255, .14);
+  --line-strong: rgba(255, 255, 255, .26);
+  --text: #ececf1;
+  --muted: #a2a7b4;
+  --accent: #3d68f0;
+  --accent-hover: #4c75f7;
+  --on-accent: #ffffff;
+  --link: #8fb0ff;
+  --focus: #8fb0ff;
+  --warn: #f5c86a;
+  --bad: #ff8a80;
+  --r-sm: 6px; --r-md: 8px; --r-lg: 12px;
+  --fs-xs: 11px; --fs-sm: 12px; --fs-md: 13px; --fs-body: 14px; --fs-lg: 15px;
+  --font: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --shadow: 0 8px 28px rgba(0, 0, 0, .45);
+  position: fixed; pointer-events: none; z-index: 2147483646;
+  font: var(--fs-body)/1.35 var(--font); color: var(--text); -webkit-font-smoothing: antialiased;
+}
+/* The rail: toasts and badge above the centre line, the flag control on it. */
+.side { position: absolute; inset: 12px 16px; display: grid; grid-template-rows: minmax(0, 1fr) auto minmax(0, 1fr);
+  justify-items: end; row-gap: 8px; pointer-events: none; }
+.above { grid-row: 1; align-self: stretch; min-height: 0; max-width: 100%; display: flex; flex-direction: column; justify-content: flex-end;
+  align-items: flex-end; gap: 8px; }
+.side.picking .above { visibility: hidden; }
+.toasts { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; max-width: min(440px, 100%); }
+.toasts:empty { display: none; }
+.toast { pointer-events: auto; box-sizing: border-box; max-width: 100%; min-height: 40px; display: flex; gap: 10px; align-items: center;
+  padding: 7px 12px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-lg); box-shadow: var(--shadow);
+  animation: in .18s ease-out; }
+.toast.has-action { padding-right: 6px; }
+.toast .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.toast svg { width: 16px; height: 16px; flex: none; }
+.toast[data-tone=info] svg { color: var(--link); }
+.toast[data-tone=warn] svg { color: var(--warn); }
+.toast[data-tone=bad] svg { color: var(--bad); }
 .toast .text { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
-.toast .detail { font-size: 12px; color: rgba(255,255,255,.66); }
-.toast button { all: unset; cursor: pointer; color: #8ab4ff; font-weight: 600; padding: 2px 4px; margin: -2px -4px -2px 4px; border-radius: 6px; }
-.toast button:hover { text-decoration: underline; }
-.toast button:focus-visible { outline: 2px solid #8ab4ff; outline-offset: 1px; }
-@keyframes in { from { opacity: 0; transform: translateY(-6px); } }
-.timeline { position: absolute; left: 0; right: 0; bottom: 0; height: 6px; background: rgba(255,255,255,.12); opacity: 0; transition: opacity .25s; }
+.toast .detail { font-size: var(--fs-sm); color: var(--muted); }
+.toast button { all: unset; box-sizing: border-box; flex: none; min-width: 44px; height: 32px; padding: 0 10px; border-radius: var(--r-md);
+  text-align: center; font: 600 var(--fs-md)/32px var(--font); color: var(--link); cursor: pointer; }
+.toast button:hover { background: var(--raised-hover); }
+.toast button:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+@keyframes in { from { opacity: 0; transform: translateY(4px); } }
+.badge { max-width: 100%; box-sizing: border-box; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  font: 500 var(--fs-sm)/16px var(--font); padding: 4px 10px; border-radius: 999px;
+  background: var(--surface); border: 1px solid var(--line); color: var(--text); opacity: 0; transition: opacity .25s; }
+/* A dark track and an outlined playhead: legible over a bright frame as well as a dark one. */
+.timeline { position: absolute; left: 0; right: 0; bottom: 0; height: 6px; background: rgba(18, 18, 22, .62); opacity: 0; transition: opacity .25s; }
 .mark { position: absolute; top: 0; bottom: 0; min-width: 2px; }
 .mark.suggested { background-image: repeating-linear-gradient(45deg, rgba(0,0,0,.45) 0 3px, transparent 3px 6px); opacity: .75; }
-.mark.allowed, .mark.allowed-by-list { opacity: .28; }
-.pending { position: absolute; top: -2px; bottom: -2px; min-width: 3px; border-radius: 2px; background: #7da0ff; box-shadow: 0 0 0 1px #fff; }
+.mark.allowed, .mark.allowed-by-list { opacity: .3; }
+.pending { position: absolute; top: -2px; bottom: -2px; min-width: 3px; border-radius: 2px; background: var(--link); box-shadow: 0 0 0 1px #fff; }
 .playhead { position: absolute; top: -3px; bottom: -3px; left: 0; width: 100%; will-change: transform; }
-.playhead::before { content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 2px; background: #fff; }
-.side { position: absolute; inset: 12px 16px; display: flex; flex-direction: column; justify-content: center; align-items: flex-end; gap: 8px; pointer-events: none; }
-.badge { max-width: 100%; box-sizing: border-box; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; padding: 4px 10px;
-  border-radius: 999px; background: rgba(18,18,22,.82); border: 1px solid rgba(255,255,255,.14); color: rgba(255,255,255,.9); opacity: 0; transition: opacity .25s; }
-.side.picking .badge { display: none; }
+.playhead::before { content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 2px; background: #fff; box-shadow: 0 0 0 1px rgba(0, 0, 0, .6); }
 .root.revealed .timeline, .root.revealed .badge { opacity: 1; }
+/* While the site plays an ad CleanCut does nothing, so it shows nothing about the episode. */
+.root.ad .timeline { visibility: hidden; }
 .cover { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); padding: 8px 14px; border-radius: 999px;
-  background: rgba(30,30,36,.9); border: 1px solid rgba(255,255,255,.14); font-size: 13px; color: #ddd; }
+  background: var(--surface); border: 1px solid var(--line); font-size: var(--fs-md); color: var(--muted); }
 `;
 
 /**
@@ -67,9 +118,8 @@ export class Overlay {
     this.shadow = this.host.attachShadow({ mode: 'open' });
     this.shadow.innerHTML = `<style>${STYLE}</style>
       <div class="root">
-        <div class="side"><div class="badge"></div></div>
         <div class="cover" hidden></div>
-        <div class="toasts"></div>
+        <div class="side"><div class="above"><div class="toasts"></div><div class="badge"></div></div></div>
         <div class="timeline"><div class="pending" hidden></div><div class="playhead"></div></div>
       </div>`;
     this.root = this.shadow.querySelector('.root');
@@ -81,6 +131,13 @@ export class Overlay {
     this.badge = this.shadow.querySelector('.badge');
     this.cover = this.shadow.querySelector('.cover');
     this.video = null;
+    // Toasts shown, oldest first. Kept here so deciding what to show never
+    // reads the DOM; the elements follow in the next frame (syncToasts).
+    this.toastList = [];
+    // Above the badge there is room for three on a player that fills the
+    // window, two on a smaller one (YouTube's default layout).
+    this.maxToasts = fillViewport ? 3 : 2;
+    this.ad = false;
     this.hideTimer = null;
     this.fadeTimer = null;
     this.hideAt = 0;
@@ -212,7 +269,7 @@ export class Overlay {
   /** Show the overlay only while a toast, the flag control or the revealed timeline needs it. */
   updateVisibility() {
     const wanted = !!(this.video?.isConnected && (this.revealed || this.revealHolds.size || this.displayHolds.size
-      || this.toasts.childElementCount || !this.cover.hidden));
+      || this.toastList.length || !this.cover.hidden));
     if (wanted === this.shown) return;
     this.shown = wanted;
     this.write('display', () => {
@@ -337,42 +394,82 @@ export class Overlay {
     });
   }
 
-  toast(message, { color = '#4f7cff', detail, actionLabel, onAction, ms = 5000 } = {}) {
+  /**
+   * A short message above the badge; the newest sits nearest the flag control.
+   * @param {string} message what happened, in a few words
+   * @param {{ color?: string, tone?: 'info'|'warn'|'bad', detail?: string|string[],
+   *   actionLabel?: string, onAction?: Function, ms?: number }} [o]
+   *   color: a category's colour (a dot, as in the popup's list of cuts);
+   *   otherwise tone picks the popup's info or warning icon.
+   */
+  toast(message, { color, tone = 'info', detail, actionLabel, onAction, ms = 5000 } = {}) {
     const el = document.createElement('div');
     el.className = 'toast';
     el.setAttribute('role', 'status');
-    const dot = document.createElement('span');
-    dot.className = 'dot';
-    dot.style.background = color;
+    if (color) {
+      const dot = document.createElement('span');
+      dot.className = 'dot';
+      dot.style.background = color;
+      el.append(dot);
+    } else {
+      el.dataset.tone = tone;
+      el.insertAdjacentHTML('beforeend', NOTE_ICONS[tone === 'info' ? 'info' : 'warn']);
+    }
+    const text = document.createElement('span');
+    text.className = 'text';
     const label = document.createElement('span');
     label.textContent = message;
-    if (detail) {
-      const text = document.createElement('span');
-      text.className = 'text';
+    text.append(label);
+    for (const line of [].concat(detail || [])) {
       const sub = document.createElement('span');
       sub.className = 'detail';
-      sub.textContent = detail;
-      text.append(label, sub);
-      el.append(dot, text);
-    } else el.append(dot, label);
+      sub.textContent = line;
+      text.append(sub);
+    }
+    el.append(text);
+    const drop = () => {
+      const i = this.toastList.indexOf(el);
+      if (i < 0) return;
+      this.toastList.splice(i, 1);
+      this.syncToasts();
+    };
     if (actionLabel) {
+      el.classList.add('has-action');
       const b = document.createElement('button');
       b.textContent = actionLabel;
       b.addEventListener('click', () => {
         onAction?.();
-        el.remove();
-        this.updateVisibility();
+        drop();
       });
       el.append(b);
     }
-    this.toasts.append(el);
-    while (this.toasts.children.length > 3) this.toasts.firstChild.remove();
-    this.updateVisibility();
-    setTimeout(() => {
-      el.remove();
-      this.updateVisibility();
-    }, ms);
+    this.toastList.push(el);
+    if (this.toastList.length > this.maxToasts) this.toastList.splice(0, this.toastList.length - this.maxToasts);
+    this.syncToasts();
+    // It stays while the pointer is on it (reaching for Undo), and goes a moment after it leaves.
+    let timer = setTimeout(drop, ms);
+    el.addEventListener('pointerenter', () => clearTimeout(timer));
+    el.addEventListener('pointerleave', () => {
+      clearTimeout(timer);
+      timer = setTimeout(drop, 2000);
+    });
     return el;
+  }
+
+  /** Bring the toast elements in line with toastList in the next frame (shown ones stay put, so their animation does not replay). */
+  syncToasts() {
+    this.write('toasts', () => {
+      for (const el of [...this.toasts.children]) if (!this.toastList.includes(el)) el.remove();
+      for (const el of this.toastList) if (el.parentNode !== this.toasts) this.toasts.append(el);
+    });
+    this.updateVisibility();
+  }
+
+  /** An ad is playing: hide the timeline (it would be measured against the ad) and the flag control. */
+  setAd(on) {
+    if (on === this.ad) return;
+    this.ad = on;
+    this.write('ad', () => this.root.classList.toggle('ad', this.ad));
   }
 
   destroy() {
