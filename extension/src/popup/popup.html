@@ -2,97 +2,122 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
+  <meta name="color-scheme" content="light dark">
   <title>CleanCut</title>
   <link rel="stylesheet" href="popup.css">
 </head>
-<body>
-  <header>
+<body class="popup" data-view="loading">
+  <header class="top">
     <div class="brand"><img src="icons/icon-32.png" alt="" width="20" height="20"> CleanCut</div>
     <label class="switch" title="Turn filtering on or off">
-      <input type="checkbox" id="enabled"><span class="track"><span class="knob"></span></span>
-      <span class="sr">Filtering enabled</span>
+      <span class="switch-text" id="enabled-text" aria-hidden="true">On</span>
+      <input type="checkbox" id="enabled" role="switch" aria-label="Filtering">
+      <span class="track" aria-hidden="true"><span class="knob"></span></span>
     </label>
   </header>
 
-  <section id="now" class="card">
-    <div class="muted small" id="now-site">Not on a supported player</div>
-    <div class="title" id="now-title"></div>
-    <div class="small" id="now-sources"></div>
-    <div class="small warn" id="now-warning" hidden></div>
-    <div class="small muted" id="now-diag" hidden></div>
-    <div class="row" id="sync-row" hidden>
-      <span class="small">Sync</span>
-      <button class="mini" data-offset="-1" title="Cuts happen 1s earlier">−1s</button>
-      <button class="mini" data-offset="-0.2">−0.2</button>
-      <output id="offset">0.0s</output>
-      <button class="mini" data-offset="0.2">+0.2</button>
-      <button class="mini" data-offset="1" title="Cuts happen 1s later">+1s</button>
-    </div>
-    <button id="inject" class="wide" hidden>Enable CleanCut on this tab</button>
-  </section>
+  <main>
+    <!-- What is playing and what CleanCut is doing to it. -->
+    <section id="now" class="hero" aria-live="polite">
+      <div class="hero-top">
+        <span class="eyebrow" id="now-site"></span>
+        <span class="pill" id="now-status" hidden></span>
+      </div>
+      <h1 class="title" id="now-title"><span class="skeleton"></span></h1>
+      <p class="hint" id="now-hint" hidden></p>
+      <dl class="stats" id="stats" hidden>
+        <div class="stat"><dt>Rating</dt><dd id="stat-rating">–</dd></div>
+        <div class="stat"><dt>Cuts</dt><dd class="num" id="stat-cuts">–</dd></div>
+        <div class="stat"><dt>Skipped</dt><dd class="num" id="stat-time">–</dd></div>
+      </dl>
+      <p class="sources" id="now-sources" hidden></p>
+      <ul class="notes" id="now-warning" hidden></ul>
+      <button id="inject" class="btn primary block" hidden>Turn on CleanCut for this page</button>
+    </section>
 
-  <section class="card">
-    <div class="section-head"><h2>Make it rated</h2><span class="small muted" id="list-note"></span></div>
-    <div class="presets" role="radiogroup" aria-label="Rating" id="presets"></div>
-    <div id="custom" hidden></div>
-    <details>
-      <summary>How cuts happen</summary>
-      <div id="actions"></div>
-      <label class="check"><input type="checkbox" id="ai-enabled"> Act on scan-ahead detections (subtitle analysis)</label>
-      <label class="range">Only when confidence ≥ <output id="ai-conf-out"></output>
-        <input type="range" id="ai-conf" min="0.3" max="0.95" step="0.05"></label>
-      <label class="check"><input type="checkbox" id="lang-word"> Mute just the word (estimated), not the whole line</label>
-      <label class="check"><input type="checkbox" id="hide-captions"> Hide captions while muted</label>
+    <section class="card" id="rating-card" aria-labelledby="rating-h">
+      <div class="card-head"><h2 id="rating-h">Rating</h2><span class="meta" id="list-note"></span></div>
+      <div class="segmented" role="radiogroup" aria-labelledby="rating-h" id="presets"></div>
+      <div id="custom" hidden></div>
+      <details class="disclosure" id="advanced">
+        <summary>How scenes are cut</summary>
+        <div class="disclosure-body">
+          <div id="actions"></div>
+          <label class="check"><input type="checkbox" id="ai-enabled"> Also cut scenes found by scanning the subtitles</label>
+          <label class="range"><span>Only when at least <output id="ai-conf-out"></output> sure</span>
+            <input type="range" id="ai-conf" min="0.3" max="0.95" step="0.05" aria-label="Confidence needed"></label>
+          <label class="check"><input type="checkbox" id="lang-word"> Mute only the word, not the whole line (estimated)</label>
+          <label class="check"><input type="checkbox" id="hide-captions"> Hide captions while muted</label>
+        </div>
+      </details>
+    </section>
+
+    <section class="card" id="upcoming-card" aria-labelledby="cuts-h" hidden>
+      <div class="card-head"><h2 id="cuts-h">Cuts in this episode</h2><span class="meta" id="skipped"></span></div>
+      <ol id="upcoming" class="cuts"></ol>
+      <details class="disclosure sync" id="sync-row" hidden>
+        <summary><span>Cuts early or late?</span><span class="meta">Timing <output id="offset-summary">+0.0s</output></span></summary>
+        <div class="stepper" role="group" aria-label="Shift all cuts">
+          <button class="btn" data-offset="-1" title="Cuts happen 1 second earlier">−1s</button>
+          <button class="btn" data-offset="-0.2" title="Cuts happen 0.2 seconds earlier">−0.2</button>
+          <output id="offset" aria-live="polite">+0.0s</output>
+          <button class="btn" data-offset="0.2" title="Cuts happen 0.2 seconds later">+0.2</button>
+          <button class="btn" data-offset="1" title="Cuts happen 1 second later">+1s</button>
+        </div>
+      </details>
+      <div class="flag">
+        <button id="flag" class="btn block">
+          <svg class="icon" viewBox="0 0 20 20" aria-hidden="true"><path d="M4.5 17.5V3.2m0 0h9.3l-1.9 3.4 1.9 3.4H4.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Flag a scene on the player
+        </button>
+        <p class="help center">Shortcuts: <kbd>Alt</kbd>+<kbd>[</kbd> start · <kbd>Alt</kbd>+<kbd>]</kbd> end</p>
+        <p class="help center" id="cuts-note" role="status"></p>
+        <button id="share" class="btn soft block" hidden>Share tags on GitHub</button>
+      </div>
+    </section>
+
+    <details class="card disclosure-card" id="lists-card" hidden>
+      <summary><h2>Community skip lists</h2><span class="meta" id="lists-meta"></span></summary>
+      <div id="active-list" class="active-list" hidden></div>
+      <ul id="lists" class="lists"></ul>
     </details>
-  </section>
+  </main>
 
-  <section class="card" id="upcoming-card" hidden>
-    <div class="section-head"><h2>Cuts in this episode</h2><span class="small muted" id="skipped"></span></div>
-    <ol id="upcoming"></ol>
-  </section>
-
-  <section class="card" id="lists-card" hidden>
-    <div class="section-head"><h2>Community skip lists</h2></div>
-    <div id="active-list" class="small" hidden></div>
-    <ul id="lists"></ul>
-  </section>
-
-  <section class="card" id="tag-card" hidden>
-    <div class="section-head"><h2>Tag a scene</h2><span class="small muted">Alt+[ start · Alt+] end</span></div>
-    <div class="row">
-      <button id="mark-start">Mark start</button>
-      <button id="mark-end">Mark end…</button>
+  <footer class="foot">
+    <div class="foot-links">
+      <button id="publish" class="link">Share my settings as a skip list…</button>
+      <button id="options" class="link">Options</button>
     </div>
-    <button id="share" class="wide primary" hidden>Share on GitHub</button>
-    <div class="small muted" id="mark-state"></div>
-  </section>
-
-  <footer>
-    <button id="publish" class="link">Share my settings as a skip list…</button>
-    <button id="options" class="link">Options</button>
+    <p class="help" id="foot-note" role="status"></p>
+    <details class="trouble" id="troubleshooting">
+      <summary>Troubleshooting</summary>
+      <div class="trouble-body">
+        <p class="diag" id="now-diag" hidden></p>
+        <div class="debug" id="debug">
+          <label class="check"><input type="checkbox" id="debug-rec"> Record a debug log</label>
+          <button id="debug-save" class="btn small" hidden>Save debug log</button>
+        </div>
+        <p class="help" id="debug-note"></p>
+        <p class="build" id="build"></p>
+      </div>
+    </details>
   </footer>
-  <div class="small muted" id="build" style="padding: 0 14px 4px"></div>
-  <div class="small" id="debug" style="padding: 0 14px 12px">
-    <label class="check"><input type="checkbox" id="debug-rec"> Record a debug log</label>
-    <button id="debug-save" class="link" hidden>Save debug log</button>
-    <div class="small muted" id="debug-note"></div>
-  </div>
 
-  <dialog id="publish-dialog">
+  <dialog id="publish-dialog" aria-labelledby="pub-h">
     <form method="dialog">
-      <h2>Share a skip list</h2>
-      <p class="small muted">Opens a GitHub issue with your rating settings (and the scenes you chose to let play). Once merged, anyone can use it.</p>
-      <label>Name <input id="pub-name" required minlength="3" maxlength="80" placeholder="e.g. GoT for teens"></label>
-      <label>Description <textarea id="pub-desc" maxlength="1000" rows="3" placeholder="What does this cut keep and remove?"></textarea></label>
-      <label>Applies to
+      <h2 id="pub-h">Share a skip list</h2>
+      <p class="help">Opens a GitHub issue with your rating settings, plus any scenes you chose to let play. Once it’s merged, anyone can use it.</p>
+      <label class="field">Name <input id="pub-name" required minlength="3" maxlength="80" placeholder="e.g. GoT for teens"></label>
+      <label class="field">Description <textarea id="pub-desc" maxlength="1000" rows="3" placeholder="What does this cut keep and remove?"></textarea></label>
+      <label class="field">Applies to
         <select id="pub-scope">
           <option value="*">Everything</option>
           <option value="show" id="pub-scope-show">This whole show</option>
           <option value="title" id="pub-scope-title">Only this title</option>
         </select>
       </label>
-      <div class="small warn" id="pub-error"></div>
-      <div class="row end"><button value="cancel" formnovalidate>Cancel</button><button id="pub-go" value="ok" class="primary">Open on GitHub</button></div>
+      <p class="error" id="pub-error" role="alert"></p>
+      <div class="actions"><button class="btn" value="cancel" formnovalidate>Cancel</button><button class="btn primary" id="pub-go" value="ok">Open on GitHub</button></div>
     </form>
   </dialog>
   <script src="popup.js"></script>

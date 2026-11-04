@@ -3,11 +3,23 @@ import { formatTime } from '../../../shared/identity.js';
 import { CATEGORY_COLORS } from '../content/overlay.js';
 
 const $ = (id) => document.getElementById(id);
-const LEVEL = { 0: 'none', 1: 'mild', 2: 'moderate', 3: 'any' };
+const LEVEL = { 0: 'None', 1: 'Mild', 2: 'Moderate', 3: 'Any' };
+const SITES = { netflix: 'Netflix', prime: 'Prime Video' };
+const CATEGORY_LABEL = Object.fromEntries(CATEGORIES.map((c) => [c.id, c.label]));
+const cap = (s = '') => s.charAt(0).toUpperCase() + s.slice(1);
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+const signed = (n) => `${n >= 0 ? '+' : '−'}${Math.abs(n).toFixed(1)}s`;
+
+const ICONS = {
+  warn: '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1.8 15 14H1L8 1.8Z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/><path d="M8 6.2v3.6M8 11.6v.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+  info: '<svg viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.6" fill="none" stroke="currentColor" stroke-width="1.4"/><path d="M8 7.2v4M8 4.6v.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>',
+};
 
 let settings;
 let tab;
 let page = null; // content-script snapshot
+const drawn = {}; // last rendered signature per list, so the 1 s refresh keeps focus and hover
+let syncShown = false; // Timing opens by itself once, when the cuts look out of sync
 
 async function loadSettings() {
   const { settings: s } = await chrome.storage.sync.get('settings');
@@ -29,28 +41,57 @@ async function toContent(message) {
   }
 }
 
+/** Replace a list's children only when what it shows has changed. */
+function redraw(name, signature, draw) {
+  const sig = JSON.stringify(signature);
+  if (drawn[name] === sig) return;
+  drawn[name] = sig;
+  draw();
+}
+
 // ---- rating controls ----------------------------------------------------------
+
+const presetLabel = (id) => (id === 'unfiltered' ? 'Off' : id === 'custom' ? 'Custom' : PRESETS[id]?.label || 'Custom');
+
+function choosePreset(id) {
+  if (id === 'custom' && settings.profile.preset !== 'custom') {
+    settings.profile.thresholds = { ...(PRESETS[settings.profile.preset] || PRESETS['PG-13']).thresholds };
+  }
+  settings.profile.preset = id;
+  renderPresets();
+  if (page) renderPage();
+  saveSettings();
+}
 
 function renderPresets() {
   const box = $('presets');
+  const hadFocus = box.contains(document.activeElement);
   box.replaceChildren();
   for (const id of PRESET_ORDER) {
     const b = document.createElement('button');
+    const on = settings.profile.preset === id;
     b.setAttribute('role', 'radio');
-    b.setAttribute('aria-checked', String(settings.profile.preset === id));
-    b.textContent = id === 'unfiltered' ? 'Off' : id === 'custom' ? 'Custom' : PRESETS[id].label;
-    b.title = id === 'unfiltered' ? 'Unfiltered' : id === 'custom' ? 'Pick limits per category' : `Cut to ${PRESETS[id].label}`;
-    b.addEventListener('click', () => {
-      if (id === 'custom' && settings.profile.preset !== 'custom') {
-        settings.profile.thresholds = { ...(PRESETS[settings.profile.preset] || PRESETS['PG-13']).thresholds };
-      }
-      settings.profile.preset = id;
-      renderPresets();
-      saveSettings();
-    });
+    b.setAttribute('aria-checked', String(on));
+    b.tabIndex = on ? 0 : -1;
+    b.dataset.preset = id;
+    b.textContent = presetLabel(id);
+    b.title = id === 'unfiltered' ? 'Unfiltered: nothing is cut' : id === 'custom' ? 'Pick limits per category' : `Cut to ${PRESETS[id].label}`;
+    b.addEventListener('click', () => choosePreset(id));
     box.append(b);
   }
+  if (hadFocus) box.querySelector('[aria-checked=true]')?.focus();
   renderCustom();
+}
+
+// Arrow keys move through the rating like a radio group.
+function bindPresetKeys() {
+  $('presets').addEventListener('keydown', (e) => {
+    const step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[e.key];
+    if (!step) return;
+    e.preventDefault();
+    const i = PRESET_ORDER.indexOf(settings.profile.preset);
+    choosePreset(PRESET_ORDER[(i + step + PRESET_ORDER.length) % PRESET_ORDER.length]);
+  });
 }
 
 function renderCustom() {
@@ -58,19 +99,25 @@ function renderCustom() {
   box.hidden = settings.profile.preset !== 'custom';
   if (box.hidden) return;
   box.replaceChildren();
+  const help = document.createElement('p');
+  help.className = 'help';
+  help.textContent = 'The most each category may show. Anything stronger is cut.';
+  box.append(help);
   for (const c of CATEGORIES) {
     const row = document.createElement('label');
     row.className = 'cat-row';
     const value = settings.profile.thresholds?.[c.id] ?? 3;
-    row.innerHTML = `<span></span><input type="range" min="0" max="3" step="1"><span class="lvl"></span>`;
+    row.innerHTML = '<span></span><input type="range" min="0" max="3" step="1"><span class="lvl"></span>';
     row.children[0].textContent = c.label;
     const input = row.children[1];
     const lvl = row.children[2];
     input.value = value;
-    input.setAttribute('aria-label', `${c.label}: highest severity allowed`);
+    input.setAttribute('aria-label', `${c.label}: most allowed`);
+    input.setAttribute('aria-valuetext', LEVEL[value]);
     lvl.textContent = LEVEL[value];
     input.addEventListener('input', () => {
       lvl.textContent = LEVEL[input.value];
+      input.setAttribute('aria-valuetext', LEVEL[input.value]);
       settings.profile.thresholds = { ...settings.profile.thresholds, [c.id]: Number(input.value) };
     });
     input.addEventListener('change', saveSettings);
@@ -85,7 +132,7 @@ function renderActions() {
     const label = document.createElement('label');
     label.textContent = c.label;
     const sel = document.createElement('select');
-    for (const a of ACTIONS) sel.append(new Option(ACTION_LABELS[a], a));
+    for (const a of ACTIONS) sel.append(new Option(cap(ACTION_LABELS[a]), a));
     sel.value = settings.profile.actions?.[c.id] || c.defaultAction;
     sel.addEventListener('change', () => {
       settings.profile.actions = { ...settings.profile.actions, [c.id]: sel.value };
@@ -124,50 +171,127 @@ function bindAdvanced() {
 
 // ---- now playing ---------------------------------------------------------------
 
-function renderPage() {
-  const has = !!page?.supported;
-  $('inject').hidden = has || !/^https?:/.test(tab?.url || '');
-  $('sync-row').hidden = !page?.ident;
-  $('upcoming-card').hidden = !page?.ident;
-  // Only when a list fits this title (or one is in use, so it can be stopped).
-  $('lists-card').hidden = !page?.ident || !(page.profiles?.length || page.activeList);
-  $('tag-card').hidden = !page?.ident;
-  if (!has) {
-    $('now-site').textContent = 'Not on a supported player';
-    $('now-title').textContent = '';
-    $('now-sources').textContent = 'Open Netflix or Prime Video, or enable CleanCut on any page with a video.';
-    return;
+function siteName(platform = page?.platform) {
+  if (SITES[platform]) return SITES[platform];
+  try {
+    return new URL(tab.url).host || 'This page';
+  } catch {
+    return platform && platform !== 'web' ? cap(platform) : 'This page';
   }
-  $('now-site').textContent = { netflix: 'Netflix', prime: 'Prime Video', web: new URL(tab.url).host }[page.platform] || page.platform;
-  $('now-title').textContent = page.title || (page.hasVideo ? 'Identifying…' : 'Waiting for a video…');
-  if (!page.ident) {
-    $('now-sources').textContent = '';
-    return;
-  }
-  const c = page.counts;
-  const parts = [page.catalog ? `${c.community} catalog tag${c.community === 1 ? '' : 's'}` : 'not in the catalog yet'];
-  if (c.local) parts.push(`${c.local} yours`);
-  parts.push(page.subtitle ? `${c.subtitles} from subtitle scan (${page.subtitle.cues} lines${page.subtitle.sdh ? ', SDH' : ''})` : 'subtitles not scanned yet');
-  $('now-sources').textContent = parts.join(' · ');
+}
 
-  const warn = [];
-  if (page.lookupError) warn.push(`Catalog unavailable (${page.lookupError}); using the cached copy and your own tags.`);
-  const cat = page.catalog;
-  if (cat?.timing === 'unsynced') warn.push(`These tags were timed on ${cat.timeline}. Turn on English subtitles to sync them automatically, or nudge Sync.`);
-  if (cat?.timing === 'aligned') warn.push(`Synced to this service from subtitle timing (${cat.alignment.offset >= 0 ? '+' : ''}${cat.alignment.offset}s). Sharing your tags adds this sync to the catalog.`);
-  if (cat?.via === 'alias' || cat?.via === 'title') warn.push(`Matched by title as ${cat.key}.`);
-  if (!page.subtitle && page.platform !== 'web') warn.push('Tip: turn on English [CC] subtitles once so CleanCut can scan ahead.');
-  $('now-warning').hidden = !warn.length;
-  $('now-warning').textContent = warn.join(' ');
-  const diag = diagnosticsLine(page);
+function setStatus(text, tone) {
+  $('now-status').hidden = !text;
+  $('now-status').textContent = text || '';
+  $('now-status').dataset.tone = tone || '';
+}
+
+function setHint(text) {
+  $('now-hint').hidden = !text;
+  $('now-hint').textContent = text || '';
+}
+
+function renderNotes(notes) {
+  redraw('notes', notes, () => {
+    $('now-warning').replaceChildren(...notes.map(([tone, text]) => {
+      const li = document.createElement('li');
+      li.className = 'note';
+      li.dataset.tone = tone;
+      li.innerHTML = ICONS[tone];
+      li.append(Object.assign(document.createElement('span'), { textContent: text }));
+      return li;
+    }));
+  });
+  $('now-warning').hidden = !notes.length;
+}
+
+function renderPage() {
+  const enabled = settings.enabled !== false;
+  document.body.dataset.enabled = String(enabled);
+  $('enabled-text').textContent = enabled ? 'On' : 'Off';
+  const has = !!page?.supported;
+  const ident = has && !!page.ident;
+  document.body.dataset.view = !has ? 'unsupported' : ident ? 'playing' : page.hasVideo ? 'identifying' : 'waiting';
+
+  $('stats').hidden = !ident;
+  $('now-sources').hidden = !ident;
+  $('upcoming-card').hidden = !ident;
+  $('sync-row').hidden = !ident;
+  // Only when a list fits this title (or one is in use, so it can be stopped).
+  $('lists-card').hidden = !ident || !(page.profiles?.length || page.activeList);
+  $('inject').hidden = has || !/^https?:/.test(tab?.url || '');
+  const diag = has ? diagnosticsLine(page) : '';
   $('now-diag').hidden = !diag;
   $('now-diag').textContent = diag;
-  $('offset').textContent = `${page.offset >= 0 ? '+' : ''}${page.offset.toFixed(1)}s`;
-  $('list-note').textContent = page.activeList ? `using “${page.activeList.name}”` : '';
+  const off = enabled ? [] : [['info', 'CleanCut is off, so everything plays uncut.']];
+
+  if (!has) {
+    const web = /^https?:/.test(tab?.url || '');
+    $('now-site').textContent = web ? siteName('web') : '';
+    $('now-title').textContent = web ? 'CleanCut isn’t running on this page' : 'Nothing playing here';
+    $('now-title').removeAttribute('title');
+    setHint(web
+      ? 'It works on Netflix and Prime Video. If this page has a video, you can turn it on here.'
+      : 'Open Netflix or Prime Video and start an episode.');
+    setStatus(null);
+    renderNotes([]);
+    return;
+  }
+  $('now-site').textContent = siteName();
+  if (!ident) {
+    $('now-title').textContent = page.hasVideo ? 'Finding out what’s playing' : 'Waiting for a video';
+    $('now-title').removeAttribute('title');
+    setHint(page.hasVideo ? 'This takes a few seconds once the video starts.' : 'Start an episode and CleanCut will pick it up.');
+    setStatus(enabled ? null : 'Off');
+    renderNotes(off);
+    return;
+  }
+
+  setHint(null);
+  $('now-title').textContent = page.title || 'Unknown title';
+  $('now-title').title = page.title || '';
+  const offline = page.online === false || !!page.lookupError;
+  if (!enabled) setStatus('Off');
+  else if (offline) setStatus('Offline', 'warn');
+  else setStatus('Filtering', 'ok');
+
+  // At a glance: rating, cuts in effect, time skipped.
+  const disabled = new Set(page.disabled);
+  const live = page.actions.filter((a) => !disabled.has(a.key));
+  const end = page.duration || Infinity;
+  const skipped = live.filter((a) => a.action === 'skip').reduce((s, a) => s + Math.max(0, Math.min(a.end, end) - a.start), 0);
+  const listPreset = page.activeList ? page.profiles?.find((p) => p.id === page.activeList.id)?.settings?.preset : null;
+  $('stat-rating').textContent = page.activeList ? (listPreset ? presetLabel(listPreset) : 'List') : presetLabel(settings.profile.preset);
+  $('stat-rating').title = page.activeList ? `From the skip list “${page.activeList.name}”` : '';
+  $('stat-cuts').textContent = String(live.length);
+  $('stat-time').textContent = formatTime(skipped);
+
+  const c = page.counts;
+  const parts = [page.catalog ? `${c.community} from the catalog` : 'Not in the catalog yet'];
+  parts.push(page.subtitle ? `${c.subtitles} from subtitles` : 'subtitles not scanned yet');
+  if (c.local) parts.push(`${c.local} yours`);
+  $('now-sources').textContent = parts.join(' · ');
+
+  const notes = [...off];
+  const cat = page.catalog;
+  if (offline) notes.push(['warn', 'Can’t reach the catalog right now. Using the saved copy and your own tags.']);
+  if (cat?.timing === 'unsynced') notes.push(['warn', `These tags were timed on ${siteName(cat.timeline)} and may be off here. Turn on English subtitles to line them up, or adjust the timing below.`]);
+  if (cat?.timing === 'aligned') notes.push(['info', `Tags lined up for ${siteName()} using subtitle timing (${signed(cat.alignment.offset)}).`]);
+  if (cat?.via === 'alias' || cat?.via === 'title') notes.push(['info', `Matched to the catalog by title (${cat.key}).`]);
+  if (!page.subtitle && page.platform !== 'web' && cat?.timing !== 'unsynced') notes.push(['info', 'Tip: turn on English [CC] subtitles once so CleanCut can scan ahead.']);
+  renderNotes(notes);
+
+  $('offset').textContent = signed(page.offset);
+  $('offset-summary').textContent = signed(page.offset);
+  if (!syncShown) {
+    syncShown = true;
+    $('sync-row').open = cat?.timing === 'unsynced' || page.offset !== 0;
+  }
+  $('list-note').textContent = page.activeList ? `Using “${page.activeList.name}”` : '';
+  $('list-note').title = page.activeList ? `The skip list “${page.activeList.name}” sets the rating for this title` : '';
 
   renderUpcoming();
   renderLists();
-  $('mark-state').textContent = page.markStart != null ? `Start marked at ${formatTime(page.markStart)}` : '';
   $('share').hidden = !page.unshared;
   $('share').textContent = `Share ${page.unshared} tag${page.unshared === 1 ? '' : 's'} on GitHub`;
 }
@@ -182,49 +306,70 @@ function diagnosticsLine(p) {
     parts.push(d.available ? `English tracks ${d.available}${d.dehydrated ? `, ${d.dehydrated} without links` : ''}` : 'no English subtitles listed');
   } else if (p.platform === 'netflix') parts.push('this episode not in any list yet');
   parts.push(`download ${d.download || (d.tracks ? 'pending' : 'not started')}`);
-  if (p.subtitle) parts.push(`scanned ${p.subtitle.cues} lines`);
+  if (p.subtitle) parts.push(`scanned ${p.subtitle.cues} lines${p.subtitle.sdh ? ' (SDH)' : ''}`);
+  if (p.lookupError) parts.push(`catalog error: ${p.lookupError}`);
   return `Scan-ahead check: ${parts.join(' · ')}`;
 }
 
 function renderUpcoming() {
-  const ol = $('upcoming');
-  ol.replaceChildren();
   const disabled = new Set(page.disabled);
   const regions = page.actions;
-  $('skipped').textContent = page.skipped ? `−${formatTime(page.skipped)} runtime` : '';
-  if (!regions.length) {
-    const li = document.createElement('li');
-    li.style.display = 'block';
-    li.className = 'small muted';
-    const suggested = page.flagged.filter((f) => f.decision === 'suggested').length;
-    li.textContent = page.flagged.length
-      ? `Nothing to cut at this rating.${suggested ? ` ${suggested} low-confidence detection${suggested === 1 ? '' : 's'} shown on the timeline.` : ''}`
-      : 'No tags for this title yet. Be the first: tag scenes with Alt+[ and Alt+].';
-    ol.append(li);
-    return;
-  }
-  for (const r of regions) {
-    const li = document.createElement('li');
-    if (disabled.has(r.key)) li.classList.add('off');
-    if (r.end < page.time) li.classList.add('past');
-    const dot = document.createElement('span');
-    dot.className = 'dot';
-    dot.style.background = CATEGORY_COLORS[r.reasons[0]?.category] || '#999';
-    const when = document.createElement('span');
-    when.textContent = `${formatTime(r.start)}–${formatTime(r.end)}`;
-    const what = document.createElement('span');
-    what.textContent = `${ACTION_LABELS[r.action] || r.action} · ${r.reasons.map((x) => `${x.category} (${SEVERITIES[x.severity]})`).join(', ')}`;
-    const btn = document.createElement('button');
-    btn.className = 'mini';
-    btn.textContent = disabled.has(r.key) ? 'Cut' : 'Let play';
-    btn.title = disabled.has(r.key) ? 'Filter this again' : 'Let this one play (this session)';
-    btn.addEventListener('click', async () => {
-      page = (await toContent({ type: 'toggleRegion', key: r.key })) || page;
-      renderPage();
-    });
-    li.append(dot, when, what, btn);
-    ol.append(li);
-  }
+  const letPlay = regions.filter((r) => disabled.has(r.key)).length;
+  $('skipped').textContent = letPlay ? `${letPlay} set to play` : '';
+  const sig = [regions.map((r) => [r.key, r.end, disabled.has(r.key), r.end < page.time]), page.flagged.length];
+  redraw('cuts', sig, () => {
+    const ol = $('upcoming');
+    ol.replaceChildren();
+    if (!regions.length) {
+      const li = document.createElement('li');
+      li.className = 'empty';
+      const head = document.createElement('b');
+      const suggested = page.flagged.filter((f) => f.decision === 'suggested').length;
+      if (page.flagged.length) {
+        head.textContent = 'Nothing to cut at this rating.';
+        li.append(head, suggested
+          ? `${plural(suggested, 'unsure detection')} ${suggested === 1 ? 'is' : 'are'} marked on the player’s timeline.`
+          : 'Pick a stricter rating to cut more.');
+      } else {
+        head.textContent = 'No tags for this title yet.';
+        li.append(head, 'Spot something? Flag it on the player and it’s cut for you right away.');
+      }
+      ol.append(li);
+      return;
+    }
+    for (const r of regions) {
+      const isOff = disabled.has(r.key);
+      const li = document.createElement('li');
+      if (isOff) li.classList.add('off');
+      if (r.end < page.time) li.classList.add('past');
+      const dot = document.createElement('span');
+      dot.className = 'dot';
+      dot.style.background = CATEGORY_COLORS[r.reasons[0]?.category] || '#999';
+      const when = document.createElement('span');
+      when.className = 'when';
+      when.textContent = `${formatTime(r.start)}–${formatTime(r.end)}`;
+      const what = document.createElement('span');
+      what.className = 'what';
+      const name = document.createElement('b');
+      name.textContent = r.reasons.map((x) => CATEGORY_LABEL[x.category] || cap(x.category)).join(', ');
+      const how = document.createElement('span');
+      how.textContent = `${cap(ACTION_LABELS[r.action] || r.action)} · ${[...new Set(r.reasons.map((x) => SEVERITIES[x.severity]))].join(', ')}`;
+      what.append(name, how);
+      what.title = `${name.textContent}: ${how.textContent}`;
+      const btn = document.createElement('button');
+      btn.className = 'btn toggle';
+      btn.textContent = isOff ? 'Cut again' : 'Let play';
+      btn.title = isOff ? 'Filter this scene again' : 'Let this scene play (this session)';
+      btn.addEventListener('click', async () => {
+        page = (await toContent({ type: 'toggleRegion', key: r.key })) || page;
+        renderPage();
+        // The row was redrawn: keep the keyboard where it was.
+        $('upcoming').children[regions.indexOf(r)]?.querySelector('button')?.focus();
+      });
+      li.append(dot, when, what, btn);
+      ol.append(li);
+    }
+  });
 }
 
 function scopeKeys() {
@@ -248,49 +393,87 @@ function scopeLabel(scope = '') {
 }
 
 function renderLists() {
-  const ul = $('lists');
-  ul.replaceChildren();
   const active = page.activeList;
-  $('active-list').hidden = !active;
-  if (active) {
-    $('active-list').replaceChildren(`Using “${active.name}” for ${scopeLabel(active.scope)}. `);
-    const stop = document.createElement('button');
-    stop.className = 'link';
-    stop.textContent = 'Stop using';
-    stop.addEventListener('click', async () => {
-      await chrome.runtime.sendMessage({ type: 'stopList', scopeKeys: scopeKeys() });
-      setTimeout(refreshPage, 150);
-    });
-    $('active-list').append(stop);
-  }
-  for (const p of page.profiles || []) {
-    const li = document.createElement('li');
-    const info = document.createElement('div');
-    const name = document.createElement('div');
-    name.className = 'name';
-    name.textContent = p.name;
-    const meta = document.createElement('div');
-    meta.className = 'small muted';
-    const preset = p.settings.preset === 'custom' ? 'custom' : PRESETS[p.settings.preset]?.label;
-    meta.textContent = `${preset}${p.author ? ` · by ${p.author}` : ''} · ${scopeLabel(p.scope)}`;
-    if (p.description) meta.title = p.description;
-    info.append(name, meta);
-    const use = document.createElement('button');
-    use.className = 'mini';
-    use.textContent = active?.id === p.id ? 'Active' : 'Use';
-    use.disabled = active?.id === p.id;
-    use.addEventListener('click', async () => {
-      await chrome.runtime.sendMessage({ type: 'useList', profile: p, scopeKey: scopeKeyFor(p) });
-      setTimeout(refreshPage, 150);
-    });
-    li.append(info, use);
-    ul.append(li);
-  }
+  const profiles = page.profiles || [];
+  $('lists-meta').textContent = active ? '1 in use' : `${profiles.length} for this title`;
+  redraw('lists', [active, profiles.map((p) => [p.id, p.name, p.author, p.scope, p.settings?.preset])], () => {
+    const ul = $('lists');
+    ul.replaceChildren();
+    $('active-list').hidden = !active;
+    if (active) {
+      const text = document.createElement('span');
+      text.textContent = `Using “${active.name}” for ${scopeLabel(active.scope)}.`;
+      const stop = document.createElement('button');
+      stop.className = 'link';
+      stop.textContent = 'Stop using';
+      stop.addEventListener('click', async () => {
+        await chrome.runtime.sendMessage({ type: 'stopList', scopeKeys: scopeKeys() });
+        setTimeout(refreshPage, 150);
+      });
+      $('active-list').replaceChildren(text, stop);
+    }
+    for (const p of profiles) {
+      const li = document.createElement('li');
+      const info = document.createElement('div');
+      info.className = 'info';
+      const name = document.createElement('div');
+      name.className = 'name';
+      name.textContent = p.name;
+      const meta = document.createElement('span');
+      meta.className = 'meta';
+      const preset = p.settings.preset === 'custom' ? 'Custom' : PRESETS[p.settings.preset]?.label;
+      meta.textContent = `${preset}${p.author ? ` · by ${p.author}` : ''} · ${scopeLabel(p.scope)}`;
+      if (p.description) info.title = p.description;
+      info.append(name, meta);
+      const use = document.createElement('button');
+      use.className = active?.id === p.id ? 'btn small' : 'btn small primary';
+      use.textContent = active?.id === p.id ? 'In use' : 'Use';
+      use.disabled = active?.id === p.id;
+      use.addEventListener('click', async () => {
+        await chrome.runtime.sendMessage({ type: 'useList', profile: p, scopeKey: scopeKeyFor(p) });
+        setTimeout(refreshPage, 150);
+      });
+      li.append(info, use);
+      ul.append(li);
+    }
+  });
 }
 
 async function refreshPage() {
   page = await toContent({ type: 'getState' });
   renderPage();
+}
+
+// ---- flagging and sharing ----------------------------------------------------------------
+
+function note(text, tone) {
+  $('cuts-note').textContent = text;
+  $('cuts-note').dataset.tone = tone || '';
+}
+
+/** The flagger lives on the player: ask the page to open it, then get out of the way. */
+async function openFlagger() {
+  note('');
+  const res = await toContent({ type: 'openFlagger' });
+  if (res?.error) return note(res.error, 'bad');
+  if (res == null) {
+    // No content script answered, or one too old to know this message.
+    return note('Couldn’t open the flagger on this player. Reload the page, or use Alt+[ and Alt+] while watching.', 'bad');
+  }
+  window.close();
+}
+
+// Sharing goes through GitHub: open a prefilled "Submit to the catalog" issue.
+async function openOnGitHub(res, setNote) {
+  if (!res.prefilled) {
+    try {
+      await navigator.clipboard.writeText(res.json);
+      setNote('Too long to prefill: the submission is on your clipboard. Paste it into the form that just opened.');
+    } catch {
+      setNote('Too long to prefill. Copy it from Options → Export instead.');
+    }
+  }
+  await chrome.tabs.create({ url: res.url });
 }
 
 // ---- debug log ------------------------------------------------------------------------
@@ -302,7 +485,10 @@ async function bindDebug() {
     $('debug-save').hidden = !on;
   };
   show(!!debug);
-  if (debug) $('debug-note').textContent = 'Recording. Save after playing an episode for about 30 seconds.';
+  if (debug) {
+    $('debug-note').textContent = 'Recording. Save after playing an episode for about 30 seconds.';
+    $('troubleshooting').open = true;
+  }
   $('debug-rec').addEventListener('change', async (e) => {
     const on = e.target.checked;
     await chrome.storage.local.set({ debug: on });
@@ -340,9 +526,11 @@ async function main() {
   $('enabled').checked = settings.enabled !== false;
   $('enabled').addEventListener('change', (e) => {
     settings.enabled = e.target.checked;
+    renderPage();
     saveSettings();
   });
   renderPresets();
+  bindPresetKeys();
   renderActions();
   bindAdvanced();
 
@@ -354,41 +542,21 @@ async function main() {
   }
   $('inject').addEventListener('click', async () => {
     const res = await chrome.runtime.sendMessage({ type: 'inject', tabId: tab.id });
-    if (res?.error) $('now-sources').textContent = `Could not enable here: ${res.error}`;
+    if (res?.error) setHint(`Couldn’t turn on here: ${res.error}`);
     setTimeout(refreshPage, 1200);
   });
-  $('mark-start').addEventListener('click', async () => {
-    await toContent({ type: 'markStart' });
-    refreshPage();
-  });
-  $('mark-end').addEventListener('click', async () => {
-    await toContent({ type: 'markEnd' });
-    window.close(); // the tag form opens on the player
-  });
+  $('flag').addEventListener('click', openFlagger);
   $('options').addEventListener('click', () => chrome.runtime.openOptionsPage());
-
-  // Sharing goes through GitHub: open a prefilled "Submit to the catalog" issue.
-  async function openOnGitHub(res, note) {
-    if (!res.prefilled) {
-      try {
-        await navigator.clipboard.writeText(res.json);
-        note.textContent = 'Too long to prefill: the submission is on your clipboard. Paste it into the form that just opened.';
-      } catch {
-        note.textContent = 'Too long to prefill. Copy it from Options → Export instead.';
-      }
-    }
-    await chrome.tabs.create({ url: res.url });
-  }
 
   $('share').addEventListener('click', async () => {
     const res = await toContent({ type: 'share' });
     if (!res || res.error) {
-      $('mark-state').textContent = res?.error || 'Nothing to share.';
+      note(res?.error || 'Nothing to share.', 'bad');
       return;
     }
     await chrome.runtime.sendMessage({ type: 'markShared', titleKey: page.titleKey, ids: res.ids });
     await toContent({ type: 'shared', ids: res.ids });
-    await openOnGitHub(res, $('mark-state'));
+    await openOnGitHub(res, note);
   });
 
   const dialog = $('publish-dialog');
@@ -426,7 +594,7 @@ async function main() {
       return;
     }
     dialog.close();
-    await openOnGitHub(res, $('list-note'));
+    await openOnGitHub(res, (text) => ($('foot-note').textContent = text));
   });
 
   await refreshPage();

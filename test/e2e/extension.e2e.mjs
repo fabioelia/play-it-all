@@ -304,12 +304,19 @@ try {
     await popup.waitForTimeout(300);
     assert.equal(await popup.locator('#upcoming-card').isHidden(), false, 'title cards shown');
     assert.equal(await popup.locator('#lists-card').isHidden(), true, 'no skip lists card without a list for this title');
+    // Flagging happens on the player: the button asks the page to open its flagger and
+    // closes the popup, or says why it could not (a content script without a flagger).
+    await popup.locator('#flag').click();
+    await Promise.race([
+      popup.waitForEvent('close'),
+      popup.locator('#cuts-note', { hasText: /\S/ }).waitFor(),
+    ]);
     const options = await context.newPage();
     options.on('pageerror', (e) => perrs.push(e.message));
     await options.goto(`chrome-extension://${extensionId}/options.html`);
     await options.locator('#catalog-status', { hasText: 'Connected' }).waitFor();
     assert.deepEqual(perrs, []);
-    await popup.close();
+    if (!popup.isClosed()) await popup.close();
     await options.close();
   });
 
