@@ -32,10 +32,17 @@
     "trace": "node test/perf/analyze-trace.mjs"
   },
   "devDependencies": {
+    "@huggingface/transformers": "3.8.1",
     "esbuild": "^0.25.0",
+    "kokoro-js": "1.2.1",
     "playwright": "1.63.0"
   },
   "optionalDependencies": {
     "onnxruntime-node": "^1.31.1"
+  },
+  "overrides": {
+    "@huggingface/transformers": {
+      "onnxruntime-node": "$onnxruntime-node"
+    }
   }
 }

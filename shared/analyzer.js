@@ -8,7 +8,11 @@
 //     hints, clustered over time into low/medium confidence segments for
 //     sex, violence, gore, drugs and frightening content.
 //
-// Output segments carry source:"subtitles" and a confidence, so the engine
+// The same analysis runs on what CleanCut hears when there are no captions
+// (shared/listening.js): those cues carry measured word times, so a profanity
+// is muted exactly where it is said.
+//
+// Output segments carry source:"subtitles" (or "listening") and a confidence, so the engine
 // can treat them as suggestions until the viewer opts in or a human confirms.
 
 import { DIALOGUE_HINTS, PROFANE_PHRASES, PROFANITY, SOUND_HINTS } from './lexicon.js';
@@ -42,6 +46,37 @@ export function splitCue(text) {
   };
 }
 
+/**
+ * A cue made of timed words (speech recognition): sound descriptions are the
+ * bracketed words, the dialogue is the others joined by spaces, and `spans`
+ * maps each dialogue word's characters back to its time.
+ */
+export function splitWords(words) {
+  const sounds = [];
+  const spans = [];
+  let dialogue = '';
+  for (const w of words) {
+    const text = String(w.text || '').trim();
+    if (!text) continue;
+    const said = unbleep(text).trim();
+    const sound = said === text && /^[[(]([^\])]+)[\])][.,!?]*$/.exec(text); // "[gunshot]", but not a bleep
+    if (sound) {
+      sounds.push(sound[1].toLowerCase());
+      continue;
+    }
+    if (dialogue) dialogue += ' ';
+    spans.push({ from: dialogue.length, to: dialogue.length + said.length, start: w.start, end: w.end });
+    dialogue += said;
+  }
+  return { sounds, dialogue, spans };
+}
+
+/** When the characters [from, to) of a word-cue's dialogue were spoken. */
+function spanTime(spans, from, to) {
+  const hit = spans.filter((s) => s.to > from && s.from < to);
+  return hit.length ? { start: hit[0].start, end: hit[hit.length - 1].end } : null;
+}
+
 /** Find profane words in a line. Returns [{ word, severity, index }]. */
 export function findProfanity(dialogue) {
   const hits = [];
@@ -70,31 +105,49 @@ export function findProfanity(dialogue) {
   return hits.sort((a, b) => a.index - b.index);
 }
 
+// Profanity in a transcript is near-certain; keep a little doubt for
+// homographs ("hell", "ass" the animal).
+const SUBTITLE_CONFIDENCE = (severity) => (severity === 1 ? 0.8 : 0.95);
+
 /**
- * @param {Array<{start:number,end:number,text:string}>} cues
+ * @param {Array<{start:number,end:number,text:string,words?:Array<{text:string,start:number,end:number}>}>} cues
+ *   cues with `words` (speech recognition) are muted at the measured word times
  * @param {object} [opts]
- * @param {'line'|'word'} [opts.languageMode='line']
+ * @param {'line'|'word'} [opts.languageMode='line']  for cues without word times
  * @param {number} [opts.wordPad=0.6]       seconds around an estimated word time
+ * @param {number} [opts.timedPad=0.1]      seconds around a measured word time
  * @param {number} [opts.sceneGap=20]       hints of a category closer than this join one scene
  * @param {number} [opts.scenePad=2]        seconds added around a hinted scene
+ * @param {string} [opts.source='subtitles']  source label of the segments (and their id prefix)
+ * @param {(severity:number)=>number} [opts.languageConfidence]  confidence of a profanity
+ * @param {number} [opts.hintScale=1]       factor on scene-hint confidences
  * @returns {Array} segments
  */
 export function analyzeCues(cues, opts = {}) {
   const languageMode = opts.languageMode === 'word' ? 'word' : 'line';
   const wordPad = opts.wordPad ?? 0.6;
+  const timedPad = opts.timedPad ?? 0.1;
   const sceneGap = opts.sceneGap ?? 20;
   const scenePad = opts.scenePad ?? 2;
+  const source = opts.source || 'subtitles';
+  const prefix = source === 'subtitles' ? 'sub' : source;
+  const languageConfidence = opts.languageConfidence || SUBTITLE_CONFIDENCE;
+  const hintScale = opts.hintScale ?? 1;
 
   const language = [];
   const hints = [];
 
   for (const cue of cues) {
-    const { sounds, dialogue } = splitCue(cue.text);
+    const { sounds, dialogue, spans } = Array.isArray(cue.words) ? splitWords(cue.words) : splitCue(cue.text);
 
     for (const hit of findProfanity(dialogue)) {
       let start = cue.start;
       let end = cue.end;
-      if (languageMode === 'word') {
+      const said = spans && spanTime(spans, hit.index, hit.index + hit.word.length);
+      if (said) {
+        start = Math.max(0, said.start - timedPad);
+        end = said.end + timedPad;
+      } else if (languageMode === 'word') {
         // Estimate when the word is spoken from its position in the line.
         const len = Math.max(1, dialogue.trim().length);
         const offset = Math.max(0, dialogue.indexOf(hit.word) - (dialogue.length - dialogue.trimStart().length));
@@ -103,19 +156,18 @@ export function analyzeCues(cues, opts = {}) {
         end = Math.min(cue.end, at + wordPad + 0.3);
       }
       language.push({
-        id: `sub:language:${start.toFixed(2)}:${hit.index}`,
+        id: `${prefix}:language:${start.toFixed(2)}:${hit.index}`,
         start, end,
         category: 'language',
         severity: hit.severity,
         action: 'mute',
-        source: 'subtitles',
-        // Profanity in a transcript is near-certain; keep a little doubt for
-        // homographs ("hell", "ass" the animal).
-        confidence: hit.severity === 1 ? 0.8 : 0.95,
+        source,
+        confidence: languageConfidence(hit.severity),
         note: `"${mask(hit.word)}"`,
       });
     }
 
+    const pick = ({ category, severity, confidence }) => ({ category, severity, confidence: Math.round(confidence * hintScale * 100) / 100 });
     for (const sound of sounds) {
       for (const h of SOUND_HINTS) {
         if (h.re.test(sound)) hints.push({ ...pick(h), start: cue.start, end: cue.end, evidence: `[${sound}]` });
@@ -126,10 +178,8 @@ export function analyzeCues(cues, opts = {}) {
     }
   }
 
-  return [...mergeLanguage(language), ...clusterHints(hints, { sceneGap, scenePad })].sort((a, b) => a.start - b.start);
+  return [...mergeLanguage(language), ...clusterHints(hints, { sceneGap, scenePad, source, prefix })].sort((a, b) => a.start - b.start);
 }
-
-const pick = ({ category, severity, confidence }) => ({ category, severity, confidence });
 
 function mask(word) {
   return word.length <= 2 ? word : word[0] + '*'.repeat(word.length - 2) + word[word.length - 1];
@@ -154,7 +204,7 @@ function mergeLanguage(segs) {
  * Hints for the same category that fall within `sceneGap` seconds are one
  * scene. Independent hints compound: confidence = 1 - Π(1 - cᵢ).
  */
-export function clusterHints(hints, { sceneGap = 20, scenePad = 2 } = {}) {
+export function clusterHints(hints, { sceneGap = 20, scenePad = 2, source = 'subtitles', prefix = 'sub' } = {}) {
   const byCat = new Map();
   for (const h of hints) {
     if (!byCat.has(h.category)) byCat.set(h.category, []);
@@ -170,12 +220,12 @@ export function clusterHints(hints, { sceneGap = 20, scenePad = 2 } = {}) {
       // A lone weak hint (one "[kissing]") rarely means a strong scene;
       // severity is the max seen, confidence carries the doubt.
       out.push({
-        id: `sub:${category}:${scene.start.toFixed(1)}`,
+        id: `${prefix}:${category}:${scene.start.toFixed(1)}`,
         start: Math.max(0, scene.start - scenePad),
         end: scene.end + scenePad,
         category,
         severity: scene.severity,
-        source: 'subtitles',
+        source,
         confidence: Math.round(confidence * 100) / 100,
         note: `${scene.count} cue${scene.count > 1 ? 's' : ''}: ${[...scene.evidence].slice(0, 4).join(' ')}`,
       });

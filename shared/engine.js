@@ -5,7 +5,8 @@
 
 import { exceeds, resolveProfile } from './ratings.js';
 
-const MACHINE_SOURCES = new Set(['subtitles', 'scanner']);
+// Machine-detected: subtitle scan, offline scanner, listening to the audio ahead.
+const MACHINE_SOURCES = new Set(['subtitles', 'scanner', 'listening']);
 
 // Adjacent filtered regions closer than this are merged so playback does not
 // stutter through a run of tiny cuts.
