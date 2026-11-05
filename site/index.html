@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CleanCut — watch any show at the rating you choose</title>
+<meta name="description" content="CleanCut is a free browser extension that skips, mutes or hides the scenes above your chosen rating while you watch. Make it PG-13, PG or G.">
+<meta property="og:title" content="CleanCut — watch any show at the rating you choose">
+<meta property="og:description" content="Skip, mute or hide the scenes above your rating. Free browser extension.">
+<meta property="og:image" content="img/overlay.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site"><div class="wrap">
+  <a class="logo" href="./">✂ CleanCut</a>
+  <nav><a href="#how">How it works</a><a href="#ratings">Ratings</a><a href="#sites">Sites</a><a href="#faq">FAQ</a><a href="support.html">Support</a></nav>
+</div></header>
+
+<main>
+<div class="wrap">
+  <div class="hero">
+    <h1>Watch any show at the rating you choose.</h1>
+    <p class="lede">CleanCut runs on top of the streaming sites you already use and skips, mutes or hides the scenes above your rating. Take an R-rated series and watch it as PG-13, PG or G.</p>
+    <a id="install" class="btn" href="#">Add to Chrome — free</a><a class="btn ghost" href="#how">How it works</a>
+    <small id="install-note">Works in Chrome and Edge (Firefox 128+ from source). Currently in beta.</small>
+  </div>
+  <div class="shots">
+    <img class="wide" src="img/overlay.png" alt="A video player with a toast reading 'Skipped 0:10 · violence (strong)' and an Undo button, the CleanCut badge, a Flag scene control, and a coloured strip of cuts along the bottom" width="560">
+    <img class="tall" src="img/popup.png" alt="The CleanCut popup: what is playing, the rating buttons Uncut, R, PG-13, PG, G and Custom, and the list of cuts in this episode" width="280">
+  </div>
+
+  <section id="how">
+    <h2>How it works</h2>
+    <div class="grid">
+      <div class="card"><h3>1. Pick a rating</h3><p>Choose R, PG-13, PG or G from the toolbar popup, or tune each category yourself: nudity, sex, violence, gore, language, drugs and frightening scenes.</p></div>
+      <div class="card"><h3>2. It finds the scenes</h3><p>CleanCut combines the community catalog of reviewed scene tags with a scan of the episode's own subtitles, run in your browser before the scenes play.</p></div>
+      <div class="card"><h3>3. You just watch</h3><p>Scenes above your rating are skipped, muted or the picture is hidden. A small toast says what happened, and <strong>Undo</strong> lets any scene play.</p></div>
+    </div>
+  </section>
+
+  <section id="ratings">
+    <h2>Ratings you can see</h2>
+    <p>Each preset is the highest level allowed to play, from mild to strong. Anything above it is cut. Language is muted by default and everything else is skipped, and you can switch any category to skip, mute or hide the picture.</p>
+    <table>
+      <tr><th>Preset</th><th>Nudity</th><th>Sex</th><th>Violence</th><th>Gore</th><th>Language</th><th>Drugs</th><th>Frightening</th></tr>
+      <tr><td>R</td><td>moderate</td><td>moderate</td><td>any</td><td>moderate</td><td>any</td><td>any</td><td>any</td></tr>
+      <tr><td>PG-13</td><td>none</td><td>mild</td><td>moderate</td><td>mild</td><td>moderate</td><td>moderate</td><td>any</td></tr>
+      <tr><td>PG</td><td>none</td><td>none</td><td>mild</td><td>none</td><td>mild</td><td>mild</td><td>moderate</td></tr>
+      <tr><td>G</td><td>none</td><td>none</td><td>none</td><td>none</td><td>none</td><td>none</td><td>mild</td></tr>
+    </table>
+  </section>
+
+  <section id="sites">
+    <h2>Where it works</h2>
+    <p>Netflix, Prime Video, YouTube, Disney+, HBO Max, Hulu, Apple TV, Paramount+, Peacock, Crunchyroll, Tubi, Pluto TV, The Roku Channel, Plex and Vimeo, plus a manual mode for any page with a video.</p>
+    <p class="note"><strong>Beta, honestly:</strong> Vimeo is verified on the live site and YouTube on recorded copies of its pages. The subscription services are built against each site's current player but haven't yet been verified with live accounts, and streaming sites change without notice. If something doesn't work on your service, <a href="support.html">tell us</a>. That is how the list gets verified. The <a href="https://github.com/fabioelia/play-it-all#supported-sites">status of each service</a> is public.</p>
+  </section>
+
+  <section>
+    <h2>Built to stay out of your way</h2>
+    <div class="grid">
+      <div class="card"><h3>Private by design</h3><p>Subtitles are analyzed on your device and never uploaded. There are no accounts and no CleanCut server. The extension reads a public catalog of tags from GitHub.</p></div>
+      <div class="card"><h3>Community powered, reviewed</h3><p>Flag a scene while you watch, then share it with one click. Every tag goes through a bot check and a person's review on GitHub before anyone else gets it. <a href="https://github.com/fabioelia/play-it-all/blob/main/CONTRIBUTING.md">See how</a>.</p></div>
+      <div class="card"><h3>You stay in control</h3><p>CleanCut never copies, edits or redistributes a video. It only skips, mutes or hides what's playing on your screen, for your own viewing.</p></div>
+    </div>
+  </section>
+
+  <section id="faq">
+    <h2>Questions</h2>
+    <details><summary>Why does it say "subtitles not scanned yet"?</summary><p>The scan uses the English subtitle file the player downloads. Turn on English captions once, and the scan runs. You can hide the captions again afterwards.</p></details>
+    <details><summary>Does it see the video frames?</summary><p>No. Streaming video is protected, so extensions can't read the picture. CleanCut works from the catalog and subtitles, so it can miss a scene that has neither. That's why community flags matter, and why machine-detected scenes are shown as suggestions until you trust them.</p></details>
+    <details><summary>Why do skips land late on some services?</summary><p>Where ads are stitched into the stream (several free and ad-supported tiers), the player's clock runs ahead of the episode after each ad break. CleanCut shows only the badge during ads, and the popup has a <strong>Sync</strong> nudge for timing that's off.</p></details>
+    <details><summary>Who checks the community tags?</summary><p>Every tag and skip list is a file submitted through GitHub. A bot validates it, and a person reviews it before it's published. You can read every file in the <a href="https://github.com/fabioelia/play-it-all/tree/main/catalog">public catalog</a>.</p></details>
+    <details><summary>Is it legal?</summary><p>In the US, the Family Movie Act of 2005 allows skipping and muting parts of a film for private home viewing, as long as no altered copy is made. CleanCut works that way. Streaming services' terms and laws in other countries differ. This is not legal advice.</p></details>
+    <details><summary>What does it cost?</summary><p>Nothing. There are no ads and no tracking.</p></details>
+    <details><summary>Is it affiliated with Netflix, Amazon or any streaming service?</summary><p>No. CleanCut is an independent project. All service names are trademarks of their respective owners.</p></details>
+  </section>
+</div>
+</main>
+
+<footer class="site"><div class="wrap">
+  © CleanCut · <a href="privacy.html">Privacy</a> · <a href="support.html">Support</a> · <a href="https://github.com/fabioelia/play-it-all">Source</a><br>
+  CleanCut is not affiliated with, endorsed by or sponsored by Netflix, Amazon, Google or any other streaming service.
+</div></footer>
+
+<script>
+  // Set this to the Chrome Web Store listing URL once it's published.
+  var STORE_URL = '';
+  var btn = document.getElementById('install');
+  if (STORE_URL) { btn.href = STORE_URL; }
+  else { btn.textContent = 'Coming soon to the Chrome Web Store'; btn.setAttribute('aria-disabled', 'true'); }
+</script>
+</body>
+</html>
