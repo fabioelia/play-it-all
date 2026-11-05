@@ -14,6 +14,8 @@ import { buildPlan, decide } from '../shared/engine.js';
 import { defaultProfile } from '../shared/ratings.js';
 import { verifyDigest } from '../extension/src/listen/models.js';
 import { PcmStore, quietCut, resample, rms } from '../extension/src/listen/audio.js';
+import { ENCRYPTED_PLATFORMS } from '../extension/src/content/listen.js';
+import { PLATFORMS } from '../shared/platforms.js';
 
 const hasFfmpeg = spawnSync('ffmpeg', ['-version']).status === 0;
 const dir = mkdtempSync(join(tmpdir(), 'cleancut-media-'));
@@ -250,6 +252,13 @@ test('quietCut ends a window in a pause, not in a word', () => {
   x.fill(0, 16000 * 8.2, 16000 * 8.5); // a pause at 8.2–8.5 s
   const cut = quietCut(x, 10);
   assert.ok(cut > 8.2 && cut < 8.5, `cut at ${cut}`);
+});
+
+test('services that encrypt their audio are refused by id; YouTube and Vimeo are not among them', () => {
+  const ids = new Set(PLATFORMS.map((p) => p.id));
+  for (const id of ENCRYPTED_PLATFORMS) assert.ok(ids.has(id), `${id} is a platform`);
+  for (const id of ['netflix', 'prime', 'disney', 'max']) assert.ok(ENCRYPTED_PLATFORMS.has(id));
+  for (const id of ['youtube', 'vimeo', 'web']) assert.equal(ENCRYPTED_PLATFORMS.has(id), false);
 });
 
 test('model files are checked against their pinned digests', async () => {

@@ -51,11 +51,14 @@ presets, the decision engine, subtitle parsing and the subtitle analyzer.
    and any other site `<meta name="cleancut:*">` tags or the URL. Each title also gets a
    *canonical key* (`game-of-thrones/s01e01`), so tags made on one platform
    can be offered on another.
-2. **Gather segments** from three sources:
+2. **Gather segments** from these sources:
    - **Community tags:** humans marked a scene with a category and severity.
    - **Your own tags:** flagged on the player while watching (**Flag scene**, or `Alt+[` / `Alt+]`).
    - **Scan-ahead:** the subtitle track is analyzed the moment the player
      downloads it, before the scenes play (see below).
+   - **Listening ahead** (opt-in, for videos without captions on sites that
+     don't encrypt their audio): the audio the player has buffered is
+     transcribed on your computer and swearing muted before it plays (see below).
 3. **Plan.** Your profile sets the highest severity allowed per category. Every
    segment above it becomes an action (skip, mute or hide picture). Nearby regions are
    merged so playback doesn't stutter.
@@ -110,6 +113,117 @@ scans in two places:
   image classifier over a video file you have lawful access to, smooths the
   per-frame scores into scenes, and publishes them to the database as
   `scanner` segments for people to confirm.
+
+### Listening ahead (videos without captions)
+
+Plenty of videos have no captions at all (on Vimeo especially, and on YouTube).
+With **Listen ahead when there are no captions** on (popup → *How scenes are
+cut*; off by default), CleanCut transcribes the audio the player has already
+buffered ahead of the playhead, **on this computer**, and mutes profanity
+before it plays.
+
+```
+ page (MAIN world)            content script             offscreen document (the extension's own process)
+ page-hook.js                 content/listen.js          audio-worker.js                 asr-worker.js
+ appendBuffer: a copy of ──▶  base64 over a      ──▶    demux fMP4 / WebM ── 16 kHz ──▶  plan a window ahead of the
+ each audio append            runtime port, and         WebCodecs decode       PCM       playhead → Whisper tiny.en
+ (transferred)                the playhead (≤ 1/s)      (shared/media.js)                (transformers.js, onnxruntime-web
+                                                                                          WASM, 1 thread) → words → analyzer
+          plan ◀──── segments, source "listening" (times, category, masked word: never the words or the audio) ◀──┘
+```
+
+- **Off, it costs nothing.** The page hook reads `cleancut:listen` from the
+  site's `localStorage` at document_start (like the debug flag). Unless the
+  viewer turned listening on for that site, it never touches `MediaSource` or
+  `SourceBuffer`. No offscreen document, no model, no copies. Switched off
+  while the page is open, each append costs one boolean check.
+- **On, the page does very little.** For audio SourceBuffers only (by MIME
+  type), the hook copies each append and transfers it to the content script
+  (no parsing beyond a look at the first bytes), which base64-encodes it
+  (`Uint8Array.toBase64`, native) and posts it on a long-lived port. That was
+  measured at about 0.13 ms for a 30 KB append, every few seconds. Runtime
+  messaging carries JSON only. Moving the bytes without copying would take an
+  extension iframe inside the site's page, which CleanCut avoids. The playhead
+  rides on the existing 100 ms playback tick, at most once a second. No
+  timers, DOM or layout reads are added.
+- **Only where the audio isn't encrypted.** Netflix, Prime Video, Disney+, HBO
+  Max, Hulu, Apple TV, Paramount+ and Peacock encrypt their audio (EME), so it
+  cannot be read ahead. There the popup says *This service encrypts its audio,
+  so CleanCut can't listen ahead here*, and nothing runs. On any other site, a
+  video with `mediaKeys`, an `encrypted` event, or an encrypted init segment
+  (`enca`/`sinf`, `pssh`, `senc`, WebM `ContentEncryption`) is refused the same
+  way.
+- **Captions win.** Once a title's captions are scanned, listening stops
+  (Options has *Listen even when there are captions*).
+- **What it hears, and when.** It plans up to 90 s ahead of the playhead, in
+  windows of up to 28 s that start and end in pauses, with a shorter first
+  window after a start or a seek. It idles while the video is paused or an ad
+  plays. A seek stops the window being heard and starts at the new place.
+  Speech the model left out (Whisper tiny can drop a short window's last
+  sentence) is heard again. Decoding runs in its own worker, so it never waits
+  behind recognition.
+- **Mutes at the word.** Whisper's cross-attention word times (dynamic time
+  warping; see `fixWordTimestamps` in `recognizer.js` for a bug fixed on the
+  way) go through the subtitle analyzer as timed words. A profanity is muted
+  from 0.12 s before to 0.12 s after the word (at least 0.35 s), plus the
+  engine's usual padding. Confidences allow for mishearing: strong 0.85,
+  moderate 0.75, mild 0.5 (a suggestion at the default 60% bar). Scene hints
+  from sounds Whisper writes in brackets count 0.7 times as much.
+- **The model** is downloaded once, after the viewer agrees to it in the popup:
+  Whisper tiny.en, int8 ONNX, **44 MB**, from Hugging Face
+  (`onnx-community/whisper-tiny.en_timestamped` at commit `aeaa137`). Every
+  file is checked against a pinned SHA-256 (or git blob id) before it is kept
+  in the extension's Cache Storage; *Options → Delete the model* removes it.
+  No host permission is needed: Hugging Face and its CDN answer with CORS
+  headers. While recognizing, nothing is fetched (a request for any file not
+  in the cache is answered 404 in the worker). The WebAssembly runtime ships
+  in the package (11 MB); no code is downloaded.
+- **Private.** Audio and transcripts never leave the computer and are held in
+  memory only while the video plays.
+
+Why Whisper tiny.en, measured by `npm run bench:listen-model` in headless
+Chromium (WebAssembly SIMD, 1 thread, a 4-core VM). RTF (real-time factor) is
+compute seconds per second of audio, measured on 28 s windows. WER is on 30
+LibriSpeech utterances. Swears are found by the analyzer in TTS speech.
+
+| Model (int8) | Download | Load | RTF | WER | Swears | Word times |
+| --- | --- | --- | --- | --- | --- | --- |
+| **Whisper tiny.en** | 44 MB | 3.6 s | 0.20 | 9.5% | 8/8 | yes, ±96 ms |
+| Whisper base.en | 80 MB | 6.1 s | 0.36 | 8.0% | 8/8 | yes, ±241 ms |
+| Moonshine tiny | 32 MB | 1.7 s | 0.13 | 9.3% | 8/8 | none |
+| Moonshine base | 67 MB | 2.2 s | 0.25 | 6.4% | 8/8 | none |
+
+Moonshine is faster and as accurate, but gives no word times, so a mute
+could only cover the whole phrase. Whisper base.en costs 1.7× the CPU and
+twice the download for 1.5 points of WER, and its word times were looser.
+More threads barely help (RTF 0.21 with 1, 0.16 with 2, 0.14 with 4), so
+one thread is the most CPU-efficient (0.21 core-seconds per second of
+audio, against 0.32 and 0.54). It also leaves the cores to the video, and
+needs no cross-origin isolation. WebGPU is not available in headless
+Chromium, so it was not measured and is not used. The int8 files rely on
+operators (dynamic quantization) that onnxruntime's WebGPU backend may not
+run, so WebGPU would probably need a different (fp16 or 4-bit) download.
+Only the WebAssembly build of the runtime ships (11 MB instead of 22 MB).
+
+What it costs the page (`npm run bench:listen`): the MSE demo, 720p VP9 and
+Opus buffered 30 s ahead in 5 s segments like YouTube, 30 s of playback with
+the mouse moving over the player. Headless Chromium on 4 cores, 3 runs each
+(ranges):
+
+| | script ms/s | task ms/s | long tasks | janky frames | dropped frames | `appendBuffer` call | CPU, all processes |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| No extension | 2.3 | 31–32 | 0 | 0 | 0 / 903 | 0.09–0.11 ms | 0.42 cores |
+| CleanCut, listening off | 3.4–3.8 | 41–43 | 0 | 0 | 0 / 903 | 0.08–0.11 ms | 0.45–0.47 |
+| CleanCut, listening on | 4.2–4.3 | 48–49 | 0 | 0 | 0 / 903 | 0.13–0.15 ms | 1.03–1.12 |
+
+With listening on, the page's main thread does 0.6 ms/s more script work.
+That is the content script carrying 420 KB of audio in 14 appends, about
+0.13 ms each, plus planning in what comes back. The hook's copy adds about
+0.04 ms to each `appendBuffer` call. There are no long tasks and no janky or
+dropped frames. The model works in the extension's own process: about
+0.6 cores while it catches up on the first minute, then about 0.2 cores per
+second of speech (RTF 0.21 to 0.24 in the extension). With listening off, the
+hook installs nothing.
 
 ---
 
@@ -239,7 +353,24 @@ npm run test:e2e:youtube  # the YouTube adapter in the extension, on fixtures of
 npm run test:adapters     # every streaming adapter on a fixture at its site's real address
 npm run test:live:youtube # the real youtube.com (network needed; exit 2 if YouTube refuses the browser)
 npm run test:live:vimeo   # the real Vimeo embedded player (network needed)
+npm run test:e2e:listen   # listening ahead on the MSE demo (downloads, once: the 44 MB speech model, 92 MB TTS model)
+npm run bench:listen      # what listening costs the page: no extension vs listening off vs on
+npm run bench:listen-model  # the candidate speech models: load time, real-time factor, WER, word timing
 ```
+
+The listening tests need speech with known swearing. `npm run demo:listen`
+makes it with a local TTS model (Kokoro-82M via kokoro-js, ONNX, Apache-2.0)
+and ffmpeg. It writes an episode with no captions as WebM Opus, fragmented MP4
+AAC, and a ClearKey-encrypted copy, all outside the repository, under
+`~/.cache/cleancut` (`CLEANCUT_CACHE`). `npm run dev` then serves it at
+`http://localhost:8787/demo/listen` (`?audio=mp4`, `?audio=enc`, `?ahead=30`).
+The tests serve the model from a local copy of Hugging Face's files, checked
+against the same digests. `test:e2e:listen` checks that, off, nothing is
+installed, copied or opened; that turning it on asks first and downloads once;
+that it idles while paused; that a swear is found in the buffered audio before
+the playhead reaches it and muted around the word (also after a seek, and in
+AAC); the popup's status; that captions win; that encrypted audio is refused;
+and turning it off per site and deleting the model.
 
 The live checks go through `HTTPS_PROXY` when it is set. YouTube shows a
 "confirm you're not a bot" page or Google's "unusual traffic" page to some
@@ -366,7 +497,27 @@ clips in a swipe feed, rarely captioned, never in the catalog.
 - **Privacy.** The only thing that leaves your browser is the lookup of what
   you are watching (platform and id) sent to the server you configure, plus
   anything you choose to share. Subtitles are analyzed locally and never
-  uploaded.
+  uploaded. With listening ahead on, audio is transcribed on your computer and
+  never leaves it; the one extra request is the model download, once, from
+  Hugging Face.
+- **Listening ahead mishears.** Whisper tiny.en on clean TTS speech found 8/8
+  swears and wrote "dam" for "damn" in 1 of 16 windows. With a weaker TTS voice
+  it heard "FUG" for "fuck" in 9 of 16 windows. Films with music and effects will be
+  harder. Captions, when a video has them, are more reliable and win. After a
+  seek, the first words at the new place are known about 3 to 7 s later on this
+  4-core VM: each window costs about 2 s of encoder time plus about 45 ms per word.
+  So a swear right after the landing point can get through.
+- **Listening ahead is unverified on the real YouTube and Vimeo.** YouTube
+  refuses this test machine, and in its headless Chromium Vimeo's player never
+  loads media, with or without CleanCut. What is known: Vimeo plays through MSE
+  (a `blob:` source), and the hook arms in the `player.vimeo.com` frame;
+  YouTube serves Chrome Opus in WebM, the demo's default; Vimeo's DASH container
+  (AAC in fragmented MP4) is checked on the demo. Not handled: a SourceBuffer
+  carrying audio and video muxed together, MediaSource in a worker, `sequence`
+  mode, plain MP4 files without MSE (plain WebM files are read with Range
+  requests), and Firefox (no offscreen documents). Turning it on for a site
+  takes effect on the next page load, because the hook reads its flag at
+  document_start.
 
 ## Roadmap
 
@@ -383,8 +534,9 @@ clips in a swipe feed, rarely captioned, never in the catalog.
 ## Layout
 
 ```
-shared/      ratings, engine, subtitles, analyzer, lexicon, sources, identity, validate
-extension/   build.mjs, src/{background,page-hook,config}.js, src/content/*, src/popup/*, src/options/*
+shared/      ratings, engine, subtitles, analyzer, lexicon, sources, identity, validate, media, listening
+extension/   build.mjs, src/{background,page-hook,config}.js, src/content/*, src/popup/*, src/options/*,
+             src/offscreen/* (listening's host page), src/listen/* (model registry, store, workers)
 server/      src/{index,app,db}.js, public/{index,demo}.html + demo captions
 scanner/     src/{cli,frames,classifiers,timeline}.js
 test/        *.test.js, e2e/extension.e2e.mjs, fixtures/

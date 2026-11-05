@@ -53,6 +53,8 @@ export function createListening({ platform, bg, toHook, onSegments, onStatus, lo
   let selected = null;
   let lastClock = { t: -1, paused: null, ad: null };
   let segments = [];
+  const tracks = new Map(); // track id → { msg: its 'track' message, init: its last init-segment append }
+  let retries = 0;
   const st = { state: 'off', detail: null, heardTo: null, words: 0, bytes: 0, appends: 0, relayMs: 0 };
 
   const allowed = () => prefs.on && prefs.sites?.[host] !== false;
@@ -108,8 +110,16 @@ export function createListening({ platform, bg, toHook, onSegments, onStatus, lo
       port = p;
       p.onMessage.addListener(onWorker);
       p.onDisconnect.addListener(() => {
-        if (port === p) port = null;
-        if (wanted()) set('error', 'the speech worker stopped');
+        if (port !== p) return;
+        port = null;
+        if (!wanted()) return;
+        // The offscreen document went away (closed, or the extension's process
+        // restarted): connect again, a couple of times, with what a new session
+        // needs to decode the appends that follow (each track and its init segment).
+        if (retries++ < 2) {
+          queue.unshift(...[...tracks.values()].flatMap((t) => (t.init ? [t.msg, t.init] : [t.msg])));
+          setTimeout(connect, 1500);
+        } else set('error', 'the speech worker stopped');
       });
       p.postMessage({ type: 'open', languageMode: prefs.languageMode });
       for (const m of queue.splice(0)) p.postMessage(m);
@@ -136,7 +146,7 @@ export function createListening({ platform, bg, toHook, onSegments, onStatus, lo
   function onWorker(m) {
     if (!m) return;
     if (m.type === 'diag') {
-      st.diag = { audio: m.audio, heard: m.heard, busy: m.busy, playhead: m.playhead, got: m.got };
+      st.diag = { audio: m.audio, heard: m.heard, busy: m.busy, playhead: m.playhead };
       return;
     }
     if (m.type === 'status') {
@@ -149,7 +159,6 @@ export function createListening({ platform, bg, toHook, onSegments, onStatus, lo
       st.heardTo = m.heardTo;
       st.words = m.words;
       st.windows = m.windows;
-      st.audio = m.audio;
       if (m.changed || segments.length !== m.segments.length) {
         segments = m.segments;
         onSegments(segments);
@@ -243,11 +252,17 @@ export function createListening({ platform, bg, toHook, onSegments, onStatus, lo
         // Queued until the worker is connected (the first appends, with the init
         // segment, usually come before the content script has found the video).
         const t0 = performance.now();
-        send({ type: 'append', id: payload.id, offset: payload.offset, init: payload.init, b64: toBase64(payload.bytes) });
+        const msg = { type: 'append', id: payload.id, offset: payload.offset, init: payload.init, b64: toBase64(payload.bytes) };
+        send(msg);
         st.relayMs += performance.now() - t0; // the page's cost of carrying audio to the worker
+        // Kept (small) so a new connection can decode what comes next.
+        if (payload.init && msg.b64.length < 64 * 1024 && tracks.has(payload.id)) tracks.get(payload.id).init = msg;
         if (!port) connect();
       } else if (type === 'audio-track') {
-        send({ type: 'track', id: payload.id, source: payload.source, mime: payload.mime });
+        const msg = { type: 'track', id: payload.id, source: payload.source, mime: payload.mime };
+        tracks.set(payload.id, { msg, init: null });
+        if (tracks.size > 16) tracks.delete(tracks.keys().next().value);
+        send(msg);
       } else if (type === 'audio-source') {
         sources.set(payload.source, payload.url);
         if (sources.size > 16) sources.delete(sources.keys().next().value);

@@ -92,9 +92,11 @@ Check the output: `npm run package && unzip -p extension/dist/cleancut-chrome.zi
 | `scripting` | The background worker registers and injects the content script so each part can be turned off from Options. |
 | `activeTab` | Lets the popup read and control the player in the tab the user is looking at, and run on pages outside the listed sites when the user asks. |
 | Optional access to all sites (if kept) | Requested only when the user chooses a custom catalog address or turns CleanCut on for another page; never required. |
-| Page-world script | Netflix's player only allows seeking through its own page-world API (setting `currentTime` crashes it), and the players' subtitle/metadata requests are visible only there. |
+| Page-world script | Netflix's player only allows seeking through its own page-world API (setting `currentTime` crashes it), and the players' subtitle/metadata requests are visible only there. With *Listen ahead* on for a site, it also passes a copy of the audio the player buffers to the extension, so profanity can be muted in videos without captions. |
+| `offscreen` | Only when the user turns on *Listen ahead*: an offscreen document (reason `WORKERS`) runs the speech recognition model in workers, so it never runs on the video's page. It is closed when no tab is listening. |
+| CSP `'wasm-unsafe-eval'` (extension pages) | onnxruntime-web, bundled in the package, compiles its WebAssembly to run the speech model. No code is fetched. |
 
-**Remote code:** *No.* All code is bundled by esbuild into the package.
+**Remote code:** *No.* All code is bundled by esbuild into the package, the WebAssembly runtime included. *Listen ahead* downloads a model file (weights, data, not code) from Hugging Face, once, after the user agrees, checked against pinned checksums.
 
 **Data usage disclosures.** Check against the form's current wording. CleanCut receives nothing: no server, no account. The extension reads files from GitHub, and requesting a
 title's file reveals that title to GitHub (the host), which the privacy policy states. If the form's definition of "collect" includes data that reaches a third-party host, tick
