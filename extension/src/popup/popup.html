@@ -31,6 +31,7 @@
         <div class="stat"><dt>Skipped</dt><dd class="num" id="stat-time">–</dd></div>
       </dl>
       <p class="sources" id="now-sources" hidden></p>
+      <p class="sources" id="now-listen" hidden></p>
       <ul class="notes" id="now-warning" hidden></ul>
       <button id="inject" class="btn primary block" hidden>Turn on CleanCut for this page</button>
     </section>
@@ -50,6 +51,24 @@
             <input type="range" id="ai-conf" min="0.3" max="0.95" step="0.05" aria-label="Confidence needed"></label>
           <label class="check"><input type="checkbox" id="lang-word"> Mute only the word, not the whole line (estimated)</label>
           <label class="check"><input type="checkbox" id="hide-captions"> Hide captions while muted</label>
+          <!-- Listening ahead: off until the viewer turns it on and agrees to the model download. -->
+          <div class="listen" id="listen">
+            <label class="check"><input type="checkbox" id="listen-on" aria-describedby="listen-status"> Listen ahead when there are no captions (runs on this computer)</label>
+            <div class="note listen-consent" id="listen-consent" role="group" aria-labelledby="listen-consent-h" hidden>
+              <span class="listen-consent-icon"></span>
+              <div>
+                <p class="listen-consent-h" id="listen-consent-h">Download the speech model?</p>
+                <p id="listen-consent-text"></p>
+                <div class="listen-actions">
+                  <button class="btn small primary" id="listen-download">Download and turn on</button>
+                  <button class="btn small" id="listen-cancel">Not now</button>
+                </div>
+              </div>
+            </div>
+            <div class="listen-progress" id="listen-progress" hidden><span id="listen-bar"></span></div>
+            <p class="help listen-status" id="listen-status" role="status"></p>
+            <button class="link" id="listen-site" hidden></button>
+          </div>
         </div>
       </details>
     </section>

@@ -139,6 +139,56 @@ for (const [id, part] of [['part-hook', 'hook'], ['part-content', 'content']]) {
   });
 }
 
+// ---- listening ahead ---------------------------------------------------------------
+
+async function listenPrefs(patch) {
+  const { listening = {} } = await chrome.storage.local.get('listening');
+  if (patch) await chrome.storage.local.set({ listening: { ...listening, ...patch } });
+  return { ...listening, ...(patch || {}) };
+}
+
+async function showListening() {
+  const st = await chrome.runtime.sendMessage({ type: 'listenStatus' }).catch(() => null);
+  if (!st?.supported) {
+    say('listen-model', 'This browser can’t run the speech model (it needs Chrome’s offscreen documents).', 'warn');
+    $('listen-delete').hidden = true;
+    return;
+  }
+  const size = `${Math.round(st.bytes / 1e6)} MB`;
+  const downloading = st.download?.state === 'downloading';
+  if (st.model.ready) say('listen-model', `Speech model: ${st.name}, ${size}, downloaded.${st.prefs?.on ? ' Listening is on.' : ' Listening is off.'}`);
+  else if (downloading) say('listen-model', `Speech model: ${st.name}, downloading ${Math.floor(st.download.fraction * 100)}% of ${size}.`, 'warn');
+  else say('listen-model', `Speech model: ${st.name}, ${size}, not downloaded.`, 'warn');
+  $('listen-delete').hidden = !st.model.ready && !st.model.bytes;
+  $('listen-source').replaceChildren('From Hugging Face, ', Object.assign(document.createElement('a'), { href: st.page, target: '_blank', rel: 'noopener', textContent: `${st.page.split('/').slice(3, 5).join('/')} at ${st.revision}` }), `, ${st.license}. Every file is checked against its pinned checksum.`);
+  const prefs = st.prefs || {};
+  $('listen-always').checked = !!prefs.always;
+  const off = Object.entries(prefs.sites || {}).filter(([, v]) => v === false).map(([h]) => h);
+  $('listen-sites').hidden = !off.length;
+  $('listen-site-list').replaceChildren(...off.map((host) => {
+    const li = document.createElement('li');
+    const b = Object.assign(document.createElement('button'), { className: 'link', textContent: 'Turn back on' });
+    b.addEventListener('click', async () => {
+      const p = await listenPrefs();
+      const sites = { ...(p.sites || {}) };
+      delete sites[host];
+      await listenPrefs({ sites });
+      showListening();
+    });
+    li.append(Object.assign(document.createElement('span'), { textContent: host }), b);
+    return li;
+  }));
+  if (downloading) setTimeout(showListening, 1000);
+}
+$('listen-delete').addEventListener('click', async () => {
+  await chrome.runtime.sendMessage({ type: 'listenDelete' });
+  showListening();
+});
+$('listen-always').addEventListener('change', async (e) => {
+  await listenPrefs({ always: e.target.checked });
+});
+
 showCatalog();
 renderTags();
 showParts();
+showListening();

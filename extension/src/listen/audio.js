@@ -63,9 +63,17 @@ export class PcmStore {
     return this.runs.map((r) => [r.start, r.start + r.length / r.rate]);
   }
 
-  /** Forget audio that ends before `time` (already played). */
+  /** Forget audio before `time` (already played), also from the start of a run that goes on past it. */
   dropBefore(time) {
     this.runs = this.runs.filter((r) => r.start + r.length / r.rate >= time);
+    for (const r of this.runs) {
+      const k = Math.floor((time - r.start) * r.rate);
+      if (k > r.rate) { // more than a second: worth the copy
+        r.data = r.data.slice(k, Math.max(r.length, k + 1));
+        r.length -= k;
+        r.start += k / r.rate;
+      }
+    }
   }
 
   clear() {

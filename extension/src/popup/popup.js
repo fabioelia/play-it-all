@@ -166,6 +166,128 @@ function bindAdvanced() {
   });
 }
 
+// ---- listening ahead -------------------------------------------------------------
+// Off until the viewer turns it on. The first time, the model download is
+// explained (size, source, that audio stays on this computer) and only starts
+// on "Download and turn on"; background.js turns listening on when it is done,
+// even if this popup has closed by then.
+
+let listen = null; // background listenStatus: { supported, model, download, prefs, name, bytes, page }
+let consentOpen = false;
+const mb = (bytes) => `${Math.round(bytes / 1e6)} MB`;
+const HEARD_STATES = new Set(['listening', 'paused', 'waiting', 'loading']);
+const LISTEN_TEXT = {
+  listening: (l) => (l.heardTo != null ? `Listening ahead · transcribed to ${formatTime(l.heardTo)}` : 'Listening ahead'),
+  paused: (l) => `Listening ahead · paused${l.heardTo != null ? `, transcribed to ${formatTime(l.heardTo)}` : ''}`,
+  waiting: () => 'Listening ahead · waiting for the player to buffer audio',
+  loading: () => 'Listening ahead · starting the speech model',
+  reload: () => 'Reload the page to start listening here',
+  encrypted: () => 'Encrypted here, can’t listen',
+  captions: () => 'This video has captions, so CleanCut reads those instead',
+  'site-off': () => 'Off on this site',
+  'no-model': () => 'The speech model is missing. Turn this off and on again to download it.',
+  unsupported: (l) => `Can’t listen here${l.detail ? `: ${l.detail}` : ''}`,
+  error: (l) => `Listening stopped${l.detail ? `: ${l.detail}` : ''}`,
+};
+
+async function setListenPrefs(patch) {
+  const { listening = {} } = await chrome.storage.local.get('listening');
+  await chrome.storage.local.set({ listening: { ...listening, ...patch } });
+}
+
+async function refreshListen() {
+  listen = await chrome.runtime.sendMessage({ type: 'listenStatus' }).catch(() => null);
+  renderListen();
+}
+
+function renderListen() {
+  const st = listen;
+  const status = (text, tone = '') => {
+    $('listen-status').textContent = text;
+    $('listen-status').dataset.tone = tone;
+  };
+  if (!st) return;
+  if (!st.supported) {
+    $('listen-on').disabled = true;
+    $('listen-site').hidden = true;
+    return status('This browser can’t run the speech model.');
+  }
+  const prefs = st.prefs || {};
+  const downloading = st.download?.state === 'downloading';
+  const l = page?.listening;
+  $('listen-on').checked = !!prefs.on || downloading || consentOpen;
+  $('listen-consent').hidden = !consentOpen || downloading;
+  if (consentOpen) {
+    $('listen-consent-text').textContent = `CleanCut needs a speech recognition model (${st.name}, ${mb(st.bytes)}), downloaded once from Hugging Face. It transcribes the audio the player has already buffered, here on this computer. Audio never leaves it.`;
+  }
+  $('listen-progress').hidden = !downloading;
+  if (downloading) {
+    const pct = Math.floor((st.download.fraction || 0) * 100);
+    $('listen-bar').style.width = `${pct}%`;
+    status(`Downloading model ${pct}% · ${mb(st.bytes)}`);
+  } else if (prefs.error && !prefs.on) {
+    status(`The model didn’t download (${prefs.error}). Turn this on to try again.`, 'bad');
+  } else if (prefs.on) {
+    const fn = l && LISTEN_TEXT[l.state];
+    status(fn ? fn(l) : 'On: listens when a video without captions plays.', l?.state === 'encrypted' || l?.state === 'reload' ? 'warn' : l?.state === 'error' ? 'bad' : '');
+  } else {
+    status(consentOpen ? '' : st.model?.ready ? '' : `Mutes swearing in videos without captions. Needs a one-time ${mb(st.bytes)} download.`);
+  }
+  // This site on or off (only where it could listen).
+  const site = l?.host;
+  $('listen-site').hidden = !(prefs.on && site && l.state !== 'encrypted' && page?.platform);
+  if (site) $('listen-site').textContent = l.site === false ? `Turn on for ${site}` : `Turn off for ${site}`;
+  // On the hero: how far it has listened, or that the page needs a reload.
+  const hero = prefs.on && l && (HEARD_STATES.has(l.state) || l.state === 'reload') ? LISTEN_TEXT[l.state](l) : '';
+  $('now-listen').hidden = !hero || !page?.ident;
+  $('now-listen').textContent = hero;
+}
+
+function bindListen() {
+  $('listen-consent').querySelector('.listen-consent-icon').innerHTML = ICONS.info;
+  $('listen-on').addEventListener('change', async (e) => {
+    if (e.target.checked) {
+      await refreshListen();
+      if (!listen?.supported) {
+        e.target.checked = false;
+        return;
+      }
+      if (listen.model?.ready) await setListenPrefs({ on: true, error: null });
+      else {
+        consentOpen = true; // nothing is downloaded until the viewer says so
+        renderListen();
+        $('listen-download').focus();
+        return;
+      }
+    } else {
+      consentOpen = false;
+      await setListenPrefs({ on: false, pending: false });
+    }
+    setTimeout(refreshPage, 200);
+  });
+  $('listen-download').addEventListener('click', async () => {
+    consentOpen = false;
+    const r = await chrome.runtime.sendMessage({ type: 'listenDownload' }).catch((err) => ({ error: String(err?.message || err) }));
+    if (r?.error) await setListenPrefs({ error: r.error });
+    refreshListen();
+  });
+  $('listen-cancel').addEventListener('click', () => {
+    consentOpen = false;
+    renderListen();
+    $('listen-on').focus();
+  });
+  $('listen-site').addEventListener('click', async () => {
+    const host = page?.listening?.host;
+    if (!host) return;
+    const { listening = {} } = await chrome.storage.local.get('listening');
+    const sites = { ...(listening.sites || {}) };
+    if (sites[host] === false) delete sites[host];
+    else sites[host] = false;
+    await chrome.storage.local.set({ listening: { ...listening, sites } });
+    setTimeout(refreshPage, 200);
+  });
+}
+
 // ---- now playing ---------------------------------------------------------------
 
 function siteName(platform = page?.platform) {
@@ -266,18 +388,22 @@ function renderPage() {
 
   // Where this title's flags come from.
   const c = page.counts;
+  const heard = page.listening && (HEARD_STATES.has(page.listening.state) || c.listening > 0);
   const parts = [page.catalog ? `${c.community} from the catalog` : 'Not in the catalog yet'];
-  parts.push(page.subtitle ? `${c.subtitles} from subtitles` : 'subtitles not scanned yet');
+  if (page.subtitle || !heard) parts.push(page.subtitle ? `${c.subtitles} from subtitles` : 'subtitles not scanned yet');
+  if (heard) parts.push(`${c.listening || 0} from listening`);
   if (c.local) parts.push(`${c.local} from you`);
   $('now-sources').textContent = parts.join(' · ');
 
   const notes = [...off];
   const cat = page.catalog;
+  const wantsListening = !!listen?.prefs?.on;
   if (offline) notes.push(['warn', 'Can’t reach the catalog right now. Using the saved copy and your own flags.']);
   if (cat?.timing === 'unsynced') notes.push(['warn', `These flags were timed on ${siteName(cat.timeline)}, so cuts may come early or late here. Turn on English subtitles to line them up, or adjust Timing below.`]);
   if (cat?.timing === 'aligned') notes.push(['info', `Flags lined up with ${siteName()} using its subtitles (${signed(cat.alignment.offset)}).`]);
   if (cat?.via === 'alias' || cat?.via === 'title') notes.push(['info', 'Found in the catalog by its title.']);
-  if (!page.subtitle && page.platform !== 'web' && cat?.timing !== 'unsynced') notes.push(['info', 'Tip: turn on English subtitles [CC] once so CleanCut can scan ahead.']);
+  if (wantsListening && page.listening?.state === 'encrypted') notes.push(['info', 'This service encrypts its audio, so CleanCut can’t listen ahead here.']);
+  if (!page.subtitle && !heard && page.platform !== 'web' && cat?.timing !== 'unsynced') notes.push(['info', 'Tip: turn on English subtitles [CC] once so CleanCut can scan ahead.']);
   renderNotes(notes);
 
   $('offset').textContent = signed(page.offset);
@@ -478,8 +604,12 @@ function renderLists() {
 }
 
 async function refreshPage() {
-  page = await toContent({ type: 'getState' });
+  [page, listen] = await Promise.all([
+    toContent({ type: 'getState' }),
+    chrome.runtime.sendMessage({ type: 'listenStatus' }).catch(() => listen),
+  ]);
   renderPage();
+  renderListen();
 }
 
 // ---- flagging and sharing ----------------------------------------------------------------
@@ -575,6 +705,7 @@ async function main() {
   bindPresetKeys();
   renderActions();
   bindAdvanced();
+  bindListen();
 
   for (const b of document.querySelectorAll('[data-offset]')) {
     b.addEventListener('click', async () => {
@@ -623,7 +754,7 @@ async function main() {
     // Catalog tags you chose to let play this session become explicit exceptions.
     const letPlay = scope === key && page ? page.flagged
       .filter((f) => page.actions.some((a) => page.disabled.includes(a.key) && a.segmentIds.includes(f.id)))
-      .map((f) => f.id).filter((id) => !/^(local|sub):/.test(id)) : [];
+      .map((f) => f.id).filter((id) => !/^(local|sub|listening):/.test(id)) : [];
     const res = await chrome.runtime.sendMessage({
       type: 'shareList',
       name,

@@ -74,6 +74,8 @@ export function createListening({ platform, bg, toHook, onSegments, onStatus, lo
   }
 
   function send(msg) {
+    st.sent = st.sent || {};
+    st.sent[msg.type] = (st.sent[msg.type] || 0) + 1;
     if (port) {
       try {
         port.postMessage(msg);
@@ -133,6 +135,10 @@ export function createListening({ platform, bg, toHook, onSegments, onStatus, lo
 
   function onWorker(m) {
     if (!m) return;
+    if (m.type === 'diag') {
+      st.diag = { audio: m.audio, heard: m.heard, busy: m.busy, playhead: m.playhead, got: m.got };
+      return;
+    }
     if (m.type === 'status') {
       if (m.state === 'encrypted') return markEncrypted();
       if (m.state === 'listening' || m.state === 'paused') st.heardTo = m.detail ?? st.heardTo;

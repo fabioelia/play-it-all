@@ -154,6 +154,7 @@ const ortDist = join(here, '..', 'node_modules/onnxruntime-web/dist');
 const ORT_FILES = ['ort-wasm-simd-threaded.mjs', 'ort-wasm-simd-threaded.wasm'];
 const listenEntries = {
   offscreen: join(src, 'offscreen/offscreen.js'),
+  'audio-worker': join(src, 'listen/audio-worker.js'),
 };
 const workerEntry = { 'asr-worker': join(src, 'listen/asr-worker.js') };
 const workerOptions = {

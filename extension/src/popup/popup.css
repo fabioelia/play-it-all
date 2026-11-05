@@ -307,6 +307,21 @@ body.popup { width: 360px; min-height: 200px; }
 #actions select { min-height: 32px; font-size: var(--fs-sm); color: var(--text); font-weight: 400; }
 .disclosure-body label.check, .disclosure-body label.range { font-size: var(--fs-sm); }
 
+/* Listening ahead */
+.listen { display: grid; gap: var(--s1); margin-top: var(--s1); padding-top: var(--s2); border-top: 1px solid var(--line); }
+.listen label.check { align-items: flex-start; padding-top: 6px; line-height: 1.35; }
+.listen label.check input { margin-top: 1px; }
+.listen-status { padding-left: 24px; }
+.listen-status[data-tone=warn] { color: var(--warn-ink); }
+.listen-status[data-tone=bad] { color: var(--bad); }
+.listen > .link { justify-self: start; margin-left: 24px; min-height: 28px; }
+.listen-consent p { margin: 0 0 var(--s1); }
+.listen-consent .listen-consent-h { font-weight: 650; }
+.listen-consent svg { width: 16px; height: 16px; margin-top: 1px; }
+.listen-actions { display: flex; gap: var(--s2); margin-top: var(--s2); }
+.listen-progress { height: 6px; margin-left: 24px; border-radius: 999px; background: var(--sunken); overflow: hidden; }
+.listen-progress span { display: block; height: 100%; width: 0; background: var(--accent); transition: width .3s; }
+
 /* Cuts */
 .cuts { list-style: none; margin: 0; padding: 0; max-height: 228px; overflow-y: auto; }
 .cuts li {

@@ -13,6 +13,8 @@ export async function modelStatus(model) {
   let bytes = 0;
   let ready = true;
   try {
+    // caches.open would create the bucket: asking must leave no trace.
+    if (!(await caches.has(MODEL_CACHE))) return { ready: false, bytes: 0, total: modelBytes(model) };
     const cache = await caches.open(MODEL_CACHE);
     for (const [path, size] of model.files) {
       const hit = await cache.match(fileUrl(model, path));

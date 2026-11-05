@@ -7,7 +7,27 @@
 // cache gets a 404, so a missing optional file can never turn into a download,
 // and audio is never sent anywhere.
 import { env, pipeline } from '@huggingface/transformers';
+import { InferenceSession } from 'onnxruntime-web'; // the runtime's own class (it bundles its own onnxruntime-common)
 import { MODEL_CACHE, MODEL_HOST } from './models.js';
+
+// onnxruntime-web's single-threaded WebAssembly runs each model call
+// synchronously, and transformers.js chains the decoder's calls with
+// promises, so a whole window would run without this worker seeing a single
+// message: no new audio, no playhead, no seek. Each call first gives the
+// worker's queue one turn (a MessageChannel ping costs about 0.1 ms; a
+// window makes ~100 calls), so a seek is noticed within one decoder step.
+const tick = new MessageChannel();
+const waiting = [];
+tick.port1.onmessage = () => waiting.shift()?.();
+const yieldTurn = () => new Promise((resolve) => {
+  waiting.push(resolve);
+  tick.port2.postMessage(0);
+});
+const run = InferenceSession.prototype.run;
+InferenceSession.prototype.run = async function (...args) {
+  await yieldTurn();
+  return run.apply(this, args);
+};
 
 let configured = null;
 /** Model-host addresses transformers.js asked for that were not downloaded (for diagnostics). */
@@ -80,11 +100,28 @@ export async function loadRecognizer(model, { wasmPaths, threads = threadBudget(
     device: 'wasm',
   });
   fixWordTimestamps(asr.model);
+  // Stopping a window that is no longer wanted (the viewer sought elsewhere):
+  // Whisper's generate() in transformers.js drops stopping criteria but keeps
+  // logits processors, so one forces end-of-text, and decoding ends at the next token.
+  const eos = [].concat(asr.model.generation_config?.eos_token_id ?? 50256)[0];
+  const stopWhen = (cancelled) => [(ids, logits) => {
+    if (cancelled()) {
+      for (let i = 0; i < logits.dims[0]; i++) {
+        const row = logits[i].data;
+        row.fill(-Infinity);
+        row[eos] = 0;
+      }
+    }
+    return logits;
+  }];
   return {
     threads: used,
     raw: (audio, o) => asr(audio, o),
-    async transcribe(audio) {
-      const out = await asr(audio, model.words ? { return_timestamps: 'word' } : {});
+    /** @param {{ cancelled?: () => boolean }} [o]  checked before each token; the result is then cut short */
+    async transcribe(audio, { cancelled } = {}) {
+      const opts = model.words ? { return_timestamps: 'word' } : {};
+      if (cancelled) opts.logits_processor = stopWhen(cancelled);
+      const out = await asr(audio, opts);
       const words = [];
       for (const c of out.chunks || []) {
         const [start, end] = c.timestamp || [];

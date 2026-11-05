@@ -1,11 +1,11 @@
 // The offscreen document (reason WORKERS): exists only while listening ahead
-// is in use, and hosts the speech worker, so decoding and recognition run in
-// the extension's own process, never on the streaming page.
+// is in use, and hosts the audio and speech workers, so decoding and
+// recognition run in the extension's own process, never on the streaming page.
 //
 // Tabs connect with chrome.runtime.connect({ name: 'cleancut-listen' }); their
 // content script forwards the audio the page hook captured (base64 strings:
 // runtime messaging carries JSON only) and the playhead. Each connection is a
-// session in the worker; its segments come back over the same port.
+// session in the workers; its segments come back over the same port.
 //
 // It also downloads the model when the viewer opts in (background.js asks),
 // and tells the background it can be closed once no tab has listened for a
@@ -16,19 +16,36 @@ import { downloadModel, modelStatus } from '../listen/store.js';
 const IDLE_MS = 90_000;
 const model = MODELS[DEFAULT_MODEL];
 
-const worker = new Worker('asr-worker.js', { type: 'module' });
-worker.postMessage({ type: 'config', wasmPaths: chrome.runtime.getURL('ort/'), model: DEFAULT_MODEL, threads: 1 });
+// Two workers: one decodes (audio-worker.js), one recognises (asr-worker.js),
+// so decoding never waits behind recognition. The audio goes from one to the
+// other directly, over their own channel.
+const speech = new Worker('asr-worker.js', { type: 'module' });
+const audio = new Worker('audio-worker.js');
+speech.postMessage({ type: 'config', wasmPaths: chrome.runtime.getURL('ort/'), model: DEFAULT_MODEL, threads: 1 });
+{
+  const link = new MessageChannel();
+  speech.postMessage({ type: 'port', port: link.port1 }, [link.port1]);
+  audio.postMessage({ type: 'port', port: link.port2 }, [link.port2]);
+}
 
 const ports = new Map(); // session id → port
 let seq = 0;
-worker.onmessage = ({ data }) => {
+const toTab = ({ data }) => {
   try {
     ports.get(data.sid)?.postMessage(data);
   } catch { /* the tab went away */ }
 };
-worker.onerror = (e) => {
+speech.onmessage = toTab;
+audio.onmessage = toTab;
+const onWorkerError = (e) => {
   for (const p of ports.values()) p.postMessage({ type: 'status', state: 'error', detail: String(e.message || 'the speech worker stopped') });
 };
+speech.onerror = onWorkerError;
+audio.onerror = onWorkerError;
+
+// Which worker a tab's message is for.
+const FOR_AUDIO = new Set(['track', 'type', 'abort', 'progressive']);
+const FOR_BOTH = new Set(['open', 'close', 'clock']);
 
 const fromBase64 = typeof Uint8Array.fromBase64 === 'function'
   ? (s) => Uint8Array.fromBase64(s)
@@ -57,18 +74,21 @@ chrome.runtime.onConnect.addListener((port) => {
   ports.set(sid, port);
   clearTimeout(idleTimer);
   port.onMessage.addListener((m) => {
-    if (!m || typeof m !== 'object') return;
+    if (!m || typeof m !== 'object' || typeof m.type !== 'string') return;
     if (m.type === 'append') {
       if (typeof m.b64 !== 'string') return;
       const bytes = fromBase64(m.b64);
-      worker.postMessage({ sid, type: 'append', id: m.id, offset: m.offset, bytes: bytes.buffer }, [bytes.buffer]);
+      audio.postMessage({ sid, type: 'append', id: m.id, offset: m.offset, bytes: bytes.buffer }, [bytes.buffer]);
       return;
     }
-    worker.postMessage({ ...m, sid });
+    const msg = { ...m, sid };
+    if (FOR_AUDIO.has(m.type) || FOR_BOTH.has(m.type)) audio.postMessage(msg);
+    if (!FOR_AUDIO.has(m.type)) speech.postMessage(msg);
   });
   port.onDisconnect.addListener(() => {
     ports.delete(sid);
-    worker.postMessage({ sid, type: 'close' });
+    audio.postMessage({ sid, type: 'close' });
+    speech.postMessage({ sid, type: 'close' });
     if (!ports.size) armIdle();
   });
   port.postMessage({ type: 'hello', sid });

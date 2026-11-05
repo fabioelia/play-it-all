@@ -70,6 +70,29 @@
     <p class="status" id="tag-status" role="status"></p>
   </section>
 
+  <section class="card section" aria-labelledby="listen-h">
+    <div class="section-head">
+      <h2 id="listen-h">Listening ahead</h2>
+      <p class="help">For videos without captions: CleanCut transcribes the audio the player has already buffered, on this computer, and mutes swearing before it plays. Audio never leaves your computer; the only download is the speech model, once. Not possible on services that encrypt their audio (Netflix, Prime Video, Disney+ and others). Turn it on from the CleanCut menu, under <em>How scenes are cut</em>.</p>
+    </div>
+    <div class="status-row">
+      <p class="status" id="listen-model" role="status">Checking…</p>
+      <button id="listen-delete" class="btn small" hidden>Delete the model</button>
+    </div>
+    <p class="help" id="listen-source"></p>
+    <div class="toggle-row">
+      <div>
+        <p class="toggle-title" id="listen-always-label">Listen even when there are captions</p>
+        <p class="help" id="listen-always-help">Captions are more reliable, so normally they win. Use this if a site’s captions leave words out.</p>
+      </div>
+      <label class="switch"><input type="checkbox" id="listen-always" role="switch" aria-labelledby="listen-always-label" aria-describedby="listen-always-help"><span class="track" aria-hidden="true"><span class="knob"></span></span></label>
+    </div>
+    <div id="listen-sites" class="listen-sites" hidden>
+      <p class="toggle-title">Turned off on</p>
+      <ul id="listen-site-list"></ul>
+    </div>
+  </section>
+
   <section class="card section" aria-labelledby="trouble-h">
     <div class="section-head">
       <h2 id="trouble-h">Troubleshooting</h2>

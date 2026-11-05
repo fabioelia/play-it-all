@@ -18,6 +18,7 @@ import { join } from 'node:path';
 import { CACHE } from '../test/support/hf.mjs';
 import { mediaSegments } from '../shared/media.js';
 import { renderSpeech } from '../test/support/speech.mjs';
+import { encryptFragmentedMp4 } from './cenc.mjs';
 
 export const SCRIPT = [
   [2, 'Welcome back to the listening demo.'],
@@ -42,7 +43,7 @@ export const CLEARKEY = { kid: '0123456789abcdef0123456789abcdef', key: 'fedcba9
 
 export async function makeListenDemo(out = join(CACHE, 'listen-demo'), { log = console.log } = {}) {
   const speech = await renderSpeech(SCRIPT, { duration: DURATION, log });
-  const dir = join(out, speech.dir.split('/').pop()); // one folder per script version
+  const dir = join(out, `${speech.dir.split('/').pop()}-m2`); // one folder per script and media version
   const files = ['audio.webm', 'audio.mp4', 'audio-enc.mp4', 'video.webm', 'speech.json', 'index.json'];
   if (files.every((f) => existsSync(join(dir, f)))) return { ...speech, dir };
   mkdirSync(dir, { recursive: true });
@@ -51,7 +52,7 @@ export async function makeListenDemo(out = join(CACHE, 'listen-demo'), { log = c
   const frag = ['-movflags', 'frag_keyframe+empty_moov+default_base_moof', '-frag_duration', '5000000', '-f', 'mp4'];
   ff('-i', speech.wav, '-ac', '2', '-c:a', 'libopus', '-b:a', '128k', '-f', 'webm', '-dash', '1', '-cluster_time_limit', '5000', join(dir, 'audio.webm'));
   ff('-i', speech.wav, '-ac', '2', '-c:a', 'aac', '-b:a', '128k', ...frag, join(dir, 'audio.mp4'));
-  ff('-i', speech.wav, '-ac', '2', '-c:a', 'aac', '-b:a', '128k', '-encryption_scheme', 'cenc-aes-ctr', '-encryption_key', CLEARKEY.key, '-encryption_kid', CLEARKEY.kid, ...frag, join(dir, 'audio-enc.mp4'));
+  writeFileSync(join(dir, 'audio-enc.mp4'), encryptFragmentedMp4(readFileSync(join(dir, 'audio.mp4')), CLEARKEY));
   ff('-f', 'lavfi', '-i', `testsrc2=size=640x360:rate=24:duration=${DURATION}`, '-vf', "drawtext=text='%{pts\\:hms}':x=20:y=20:fontsize=28:fontcolor=white:box=1:boxcolor=black@0.5",
     '-c:v', 'libvpx-vp9', '-b:v', '400k', '-deadline', 'realtime', '-cpu-used', '8', '-g', '120', '-keyint_min', '120',
     '-f', 'webm', '-dash', '1', '-cluster_time_limit', '5000', join(dir, 'video.webm'));

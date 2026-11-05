@@ -68,6 +68,11 @@ body.options {
   vertical-align: 1px;
 }
 
+.listen-sites { display: grid; gap: var(--s1); padding-top: var(--s3); border-top: 1px solid var(--line); }
+.listen-sites ul { list-style: none; margin: 0; padding: 0; }
+.listen-sites li { display: flex; justify-content: space-between; align-items: center; gap: var(--s3); }
+#listen-source a { color: var(--link); }
+
 .howto { margin: 0; display: grid; grid-template-columns: 150px 1fr; gap: var(--s3) var(--s4); }
 .howto dt { font-weight: 600; }
 .howto dd { margin: 0; color: var(--muted); }

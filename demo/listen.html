@@ -97,7 +97,7 @@
     const t = index.tracks[file];
     const append = (start, end) => new Promise((resolve, reject) => {
       sb.addEventListener('updateend', resolve, { once: true });
-      sb.addEventListener('error', reject, { once: true });
+      sb.addEventListener('error', () => reject(new Error(`${file}: append failed (${v.error?.message || 'unknown'})`)), { once: true });
       sb.appendBuffer(bytes.slice(start, end));
     });
     await append(0, t.init);
@@ -130,7 +130,11 @@
 
   const tracks = await Promise.all(files.map((f, i) => track(f, data[i], buffers[i])));
   const fill = async () => {
-    await Promise.all(tracks.map((t) => t.fill()));
+    try {
+      await Promise.all(tracks.map((t) => t.fill()));
+    } catch (e) {
+      return log('error', { message: e.message });
+    }
     if (tracks.every((t) => t.done) && ms.readyState === 'open' && !tracks.some((t) => t.busy)) {
       try { ms.endOfStream(); } catch { /* still updating */ }
     }
