@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CleanCut listening demo</title>
+  <meta name="cleancut:id" content="listen-demo-1">
+  <meta name="cleancut:series" content="CleanCut Demo">
+  <meta name="cleancut:season" content="1">
+  <meta name="cleancut:episode" content="2">
+  <meta name="cleancut:title" content="No captions">
+  <style>
+    :root { --bg: #f6f6f8; --card: #fff; --text: #17171c; --muted: #61616b; --line: #e2e2e8; color-scheme: light; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #111115; --card: #1b1b21; --text: #ececf1; --muted: #a0a0ab; --line: #2d2d35; color-scheme: dark; } }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    main { max-width: 860px; margin: 0 auto; padding: 24px 16px 48px; }
+    h1 { font-size: 24px; margin: 0 0 4px; }
+    p { color: var(--muted); margin: 6px 0; }
+    video { width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 10px; display: block; margin: 16px 0; }
+    .card { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-top: 12px; }
+    .card h2 { font-size: 14px; margin: 0 0 6px; }
+    #script { margin: 0; padding-left: 0; list-style: none; columns: 2; font-size: 13px; color: var(--muted); }
+    #log { font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; max-height: 180px; overflow: auto; white-space: pre-wrap; color: var(--muted); }
+  </style>
+</head>
+<body>
+<main>
+  <h1>CleanCut listening demo</h1>
+  <p>An episode with <strong>no captions</strong>, streamed through MediaSource like YouTube: the player keeps about 30 seconds buffered ahead. With <em>Listen ahead</em> on in CleanCut’s menu, the extension transcribes that buffered audio on this computer and mutes the swearing before it plays.</p>
+  <p id="variant"></p>
+  <video id="v" controls playsinline></video>
+  <section class="card">
+    <h2>What is said (shown here for you; the player has no captions)</h2>
+    <ul id="script"></ul>
+  </section>
+  <section class="card">
+    <h2>Player events</h2>
+    <div id="log"></div>
+  </section>
+</main>
+<script type="module">
+  // ?audio=webm (Opus in WebM, as YouTube serves Chrome) | mp4 (AAC in fragmented MP4) | enc (the same, ClearKey-encrypted)
+  // ?ahead=30  seconds the player keeps buffered ahead of the playhead
+  const q = new URLSearchParams(location.search);
+  const kind = q.get('audio') || 'webm';
+  const AUDIO = { webm: 'audio.webm', mp4: 'audio.mp4', enc: 'audio-enc.mp4' }[kind] || 'audio.webm';
+  const AHEAD = Number(q.get('ahead') || 30);
+  const BASE = '/listen-media/';
+  const v = document.getElementById('v');
+  const logEl = document.getElementById('log');
+  const events = (window.cleancutDemoEvents = []);
+  const log = (type, detail) => {
+    events.push({ type, at: v.currentTime, wall: performance.now(), ...detail });
+    logEl.textContent = `${v.currentTime.toFixed(2).padStart(6)}s  ${type}${detail ? '  ' + JSON.stringify(detail) : ''}\n` + logEl.textContent;
+  };
+  let lastTime = 0;
+  v.addEventListener('timeupdate', () => (lastTime = v.currentTime));
+  v.addEventListener('seeking', () => log('seek', { from: +lastTime.toFixed(2), to: +v.currentTime.toFixed(2) }));
+  v.addEventListener('volumechange', () => log(v.muted ? 'muted' : 'unmuted'));
+  document.getElementById('variant').textContent = `Audio: ${AUDIO} · buffering ${AHEAD} s ahead`;
+
+  const index = await (await fetch(BASE + 'index.json')).json();
+  fetch(BASE + 'speech.json').then((r) => r.json()).then((s) => {
+    document.getElementById('script').replaceChildren(...s.lines.map((l) => Object.assign(document.createElement('li'), { textContent: `${Math.floor(l.at / 60)}:${String(Math.floor(l.at % 60)).padStart(2, '0')}  ${l.text}` })));
+  });
+
+  if (kind === 'enc') {
+    // EME with ClearKey, as a DRM service would use Widevine.
+    const b64url = (hex) => btoa(String.fromCharCode(...hex.match(/../g).map((h) => parseInt(h, 16)))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+    const access = await navigator.requestMediaKeySystemAccess('org.w3.clearkey', [{
+      initDataTypes: ['keyids', 'cenc'],
+      audioCapabilities: [{ contentType: 'audio/mp4; codecs="mp4a.40.2"' }],
+      videoCapabilities: [{ contentType: 'video/webm; codecs="vp9"' }],
+    }]);
+    const keys = await access.createMediaKeys();
+    await v.setMediaKeys(keys);
+    const session = keys.createSession();
+    session.addEventListener('message', () => {
+      const license = { keys: [{ kty: 'oct', kid: b64url(index.clearkey.kid), k: b64url(index.clearkey.key) }], type: 'temporary' };
+      session.update(new TextEncoder().encode(JSON.stringify(license)));
+    });
+    await session.generateRequest('keyids', new TextEncoder().encode(JSON.stringify({ kids: [b64url(index.clearkey.kid)] })));
+    log('drm', { keySystem: 'org.w3.clearkey' });
+  }
+
+  const ms = new MediaSource();
+  v.src = URL.createObjectURL(ms);
+  await new Promise((r) => ms.addEventListener('sourceopen', r, { once: true }));
+  ms.duration = index.duration;
+
+  // Every SourceBuffer is added before anything is appended (a MediaSource takes no more once one has data).
+  const files = ['video.webm', AUDIO];
+  const data = await Promise.all(files.map((f) => fetch(BASE + f).then((r) => r.arrayBuffer())));
+  const buffers = files.map((f) => ms.addSourceBuffer(index.tracks[f].mime));
+
+  async function track(file, bytes, sb) {
+    const t = index.tracks[file];
+    const append = (start, end) => new Promise((resolve, reject) => {
+      sb.addEventListener('updateend', resolve, { once: true });
+      sb.addEventListener('error', reject, { once: true });
+      sb.appendBuffer(bytes.slice(start, end));
+    });
+    await append(0, t.init);
+    let next = 0;
+    let busy = false;
+    const self = {
+      done: false,
+      async fill() {
+        if (busy) return;
+        busy = true;
+        try {
+          const now = v.currentTime;
+          let inBuffer = false;
+          for (let i = 0; i < sb.buffered.length; i++) if (sb.buffered.start(i) <= now + 0.1 && sb.buffered.end(i) > now + 0.5) inBuffer = true;
+          // A seek outside what is buffered: carry on from the segment that holds the new time.
+          if (!inBuffer) next = Math.max(0, t.segments.findLastIndex((s) => s[2] <= now + 0.01));
+          while (next < t.segments.length && t.segments[next][2] < v.currentTime + AHEAD) {
+            const [s, e] = t.segments[next];
+            await append(s, e);
+            next++;
+          }
+          self.done = next >= t.segments.length;
+        } finally {
+          busy = false;
+        }
+      },
+    };
+    return self;
+  }
+
+  const tracks = await Promise.all(files.map((f, i) => track(f, data[i], buffers[i])));
+  const fill = async () => {
+    await Promise.all(tracks.map((t) => t.fill()));
+    if (tracks.every((t) => t.done) && ms.readyState === 'open' && !tracks.some((t) => t.busy)) {
+      try { ms.endOfStream(); } catch { /* still updating */ }
+    }
+  };
+  v.addEventListener('timeupdate', fill);
+  v.addEventListener('seeking', fill);
+  await fill();
+  log('ready', { audio: AUDIO });
+  window.cleancutDemoReady = true;
+</script>
+</body>
+</html>

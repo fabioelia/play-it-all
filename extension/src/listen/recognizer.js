@@ -43,6 +43,23 @@ function configure({ wasmPaths, threads }) {
   return configured;
 }
 
+/**
+ * Word times come from dynamic time warping over the decoder's
+ * cross-attention, cropped to the real audio first (the rest is padding up
+ * to Whisper's 30 s). The encoder halves the frame rate (100 mel frames a
+ * second, 50 attention positions), so the crop must be num_frames / 2, as in
+ * the Python implementation; transformers.js 3.8.1 (and 4.x) crops at
+ * num_frames, which for a window under 30 s lets the warp run on into the
+ * padding and puts the last words seconds late. Corrected on the instance.
+ */
+function fixWordTimestamps(model) {
+  const extract = model?._extract_token_timestamps;
+  if (typeof extract !== 'function') return;
+  model._extract_token_timestamps = function (outputs, heads, numFrames, precision) {
+    return extract.call(this, outputs, heads, numFrames == null ? numFrames : Math.ceil(numFrames / 2), precision);
+  };
+}
+
 /** How many threads inference may use: few, so video decoding and the page keep their cores. */
 export function threadBudget(cores = navigator.hardwareConcurrency || 2, isolated = self.crossOriginIsolated) {
   if (!isolated) return 1; // WebAssembly threads need SharedArrayBuffer
@@ -62,8 +79,10 @@ export async function loadRecognizer(model, { wasmPaths, threads = threadBudget(
     dtype: model.dtype,
     device: 'wasm',
   });
+  fixWordTimestamps(asr.model);
   return {
     threads: used,
+    raw: (audio, o) => asr(audio, o),
     async transcribe(audio) {
       const out = await asr(audio, model.words ? { return_timestamps: 'word' } : {});
       const words = [];

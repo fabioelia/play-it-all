@@ -612,3 +612,64 @@ export function webmInitLength(b) {
   }
   return -1;
 }
+
+/**
+ * The media segments of a whole file, as a player would append them:
+ * [{ start, end, time }] (byte range, and the media time it begins at).
+ * WebM: each Cluster (time from its Timecode). MP4: each moof+mdat, with the
+ * styp/sidx/prft before it (time from tfdt). The init segment is what comes
+ * before the first one.
+ */
+export function mediaSegments(b) {
+  const out = [];
+  if (sniff(b) === 'webm') {
+    let o = 0;
+    let scale = 1e6;
+    while (o < b.length) {
+      const id = vint(b, o, true);
+      const size = id && vint(b, o + id.length);
+      if (!size) break;
+      const body = o + id.length + size.length;
+      if (id.value === ID.Segment) {
+        o = body;
+        continue;
+      }
+      if (size.value < 0) break;
+      const end = Math.min(b.length, body + size.value);
+      if (id.value === ID.Info) {
+        for (let p = body; p < end;) {
+          const cid = vint(b, p, true);
+          const cs = cid && vint(b, p + cid.length);
+          if (!cs) break;
+          if (cid.value === ID.TimecodeScale) scale = uint(b, p + cid.length + cs.length, cs.value);
+          p += cid.length + cs.length + cs.value;
+        }
+      }
+      if (id.value === ID.Cluster) {
+        const cid = vint(b, body, true);
+        const cs = cid && vint(b, body + cid.length);
+        const time = cid?.value === ID.Timecode ? (uint(b, body + cid.length + cs.length, cs.value) * scale) / 1e9 : null;
+        out.push({ start: o, end, time });
+      }
+      o = end;
+    }
+    return out;
+  }
+  const init = parseMp4Init(b);
+  let pending = null;
+  for (const box of boxes(b)) {
+    if (box.type === 'moov' || box.type === 'ftyp') continue;
+    if (!pending) pending = { start: box.start, end: box.end, time: null };
+    pending.end = box.end;
+    if (box.type === 'moof' && init) {
+      const traf = child(b, box, 'traf');
+      const tfdt = traf && child(b, traf, 'tfdt');
+      if (tfdt) pending.time = (b[tfdt.body] === 1 ? u64(b, tfdt.body + 4) : u32(b, tfdt.body + 4)) / init.timescale;
+    }
+    if (box.type === 'mdat') {
+      out.push(pending);
+      pending = null;
+    }
+  }
+  return out;
+}

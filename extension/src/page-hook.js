@@ -15,6 +15,9 @@
 //     the Netflix player (error M7375), so seeks go through its own API.
 //  4. On YouTube (and Vimeo embeds), the player data the page carries inline
 //     for its first video, read once when the document has been parsed.
+//  5. Listening ahead, only on a site where the viewer turned it on: a copy of
+//     what the player appends to its audio SourceBuffers, for the speech
+//     model (see the section below). Off, nothing of it is installed.
 //
 // Talking to the content script: nothing is broadcast with window.postMessage.
 // Every window 'message' listener in the page (the site's own schedulers,
@@ -24,6 +27,7 @@
 // the few found before it connects are kept (bounded) and handed over then.
 
 import { MAX_INSPECT_BYTES, classifyResponse, manifestHasText, mayMatter, netflixManifestInfo, vimeoConfigInfo, youtubePlayerInfo } from '../../shared/sources.js';
+import { isInitSegment } from '../../shared/media.js';
 
 (() => {
   if (window.__cleancutHooked) return;
@@ -109,6 +113,120 @@ import { MAX_INSPECT_BYTES, classifyResponse, manifestHasText, mayMatter, netfli
       }
     }
     return { top: top.slice(0, 30), result: inner.slice(0, 60), movieId: m.movieId ?? m.viewableId ?? null, version: m.manifestVersion ?? v.version ?? null, arrays };
+  }
+
+  // ---- listening ahead: the audio the player buffers ------------------------
+  // Only where the viewer turned listening on for this site: the content
+  // script keeps 'cleancut:listen' in the site's localStorage, and it is read
+  // here, before the player starts, like the debug flag. Off (the default),
+  // nothing below runs and no prototype is touched.
+  //
+  // On: MediaSource.addSourceBuffer notes which SourceBuffers carry audio (by
+  // MIME type), and appendBuffer hands a copy of what the player appends to
+  // those to the content script (transferred, not cloned), with the
+  // SourceBuffer's timestampOffset. Video SourceBuffers are never touched
+  // beyond one WeakMap lookup. No parsing here: one look at the first bytes
+  // says whether a chunk is an initialization segment (kept if the content
+  // script has not connected yet). If the viewer switches listening off while
+  // the page is open, each append costs one boolean check.
+  let LISTEN = false;
+  try {
+    LISTEN = window.localStorage.getItem('cleancut:listen') === '1';
+  } catch { /* storage blocked */ }
+  const audioTap = LISTEN && typeof MediaSource === 'function' && typeof SourceBuffer === 'function' ? tapAudio() : null;
+
+  function tapAudio() {
+    let on = true;
+    const tracked = new WeakMap(); // SourceBuffer → track id
+    const sourceIds = new WeakMap(); // MediaSource → id
+    let seq = 0;
+    // Before the content script connects (it loads at document_idle, the player
+    // starts earlier): track announcements, init segments and up to 6 MB of media.
+    const early = [];
+    let earlyBytes = 0;
+    const post = (msg, transfer) => {
+      if (port) return port.postMessage(msg, transfer || []);
+      early.push(msg);
+      earlyBytes += msg.payload.bytes?.byteLength || 0;
+      while (earlyBytes > 6 * 1024 * 1024) {
+        const i = early.findIndex((m) => m.type === 'audio' && !m.payload.init);
+        if (i < 0) break;
+        earlyBytes -= early[i].payload.bytes.byteLength;
+        early.splice(i, 1);
+      }
+    };
+    const sourceId = (ms) => {
+      let id = sourceIds.get(ms);
+      if (!id) sourceIds.set(ms, (id = ++seq));
+      return id;
+    };
+    const wrap = (proto, name, make) => {
+      const orig = proto[name];
+      if (typeof orig !== 'function') return;
+      // An object-literal method keeps the original's name (fn.name) for sites that look.
+      proto[name] = { [name]: make(orig) }[name];
+    };
+
+    wrap(MediaSource.prototype, 'addSourceBuffer', (orig) => function (type) {
+      const sb = orig.apply(this, arguments);
+      if (on) {
+        try {
+          if (/^\s*audio\//i.test(String(type))) {
+            const id = ++seq;
+            tracked.set(sb, id);
+            post({ type: 'audio-track', payload: { id, source: sourceId(this), mime: String(type) } });
+          }
+        } catch { /* never break the player */ }
+      }
+      return sb;
+    });
+    const copy = (sb, data) => {
+      const id = tracked.get(sb);
+      if (!id) return;
+      const view = data instanceof ArrayBuffer ? new Uint8Array(data)
+        : ArrayBuffer.isView(data) ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength) : null;
+      if (!view?.byteLength) return;
+      const bytes = view.slice().buffer; // a copy: players reuse their buffers
+      post({ type: 'audio', payload: { id, bytes, offset: sb.timestampOffset, init: isInitSegment(view) } }, [bytes]);
+    };
+    for (const name of ['appendBuffer', 'appendBufferAsync']) {
+      wrap(SourceBuffer.prototype, name, (orig) => function (data) {
+        if (on) {
+          try {
+            copy(this, data);
+          } catch { /* never break the player */ }
+        }
+        return orig.apply(this, arguments);
+      });
+    }
+    wrap(SourceBuffer.prototype, 'changeType', (orig) => function (type) {
+      if (on && tracked.has(this)) post({ type: 'audio-type', payload: { id: tracked.get(this), mime: String(type) } });
+      return orig.apply(this, arguments);
+    });
+    wrap(SourceBuffer.prototype, 'abort', (orig) => function () {
+      if (on && tracked.has(this)) post({ type: 'audio-abort', payload: { id: tracked.get(this) } });
+      return orig.apply(this, arguments);
+    });
+    // Which <video> plays which MediaSource: the object URL made for it.
+    wrap(URL, 'createObjectURL', (orig) => function (obj) {
+      const url = orig.apply(this, arguments);
+      if (on) {
+        try {
+          if (obj instanceof MediaSource) post({ type: 'audio-source', payload: { source: sourceId(obj), url } });
+        } catch { /* never break the page */ }
+      }
+      return url;
+    });
+    return {
+      set(v) {
+        on = !!v;
+        if (!on) early.length = 0;
+      },
+      flush() {
+        for (const msg of early.splice(0)) port.postMessage(msg, msg.payload.bytes ? [msg.payload.bytes] : []);
+        earlyBytes = 0;
+      },
+    };
   }
 
   // ---- Netflix: subtitle tracks from the decrypted manifest -----------------
@@ -285,6 +403,7 @@ import { MAX_INSPECT_BYTES, classifyResponse, manifestHasText, mayMatter, netfli
   function onContentMessage(e) {
     const { type, seconds, reqId, url } = e.data || {};
     if (type === 'fetch' && typeof url === 'string') return pageFetch(url, reqId);
+    if (type === 'listen') return audioTap?.set(e.data.on);
     if (type === 'debug-dump') {
       const summary = [...net].map(([k, e]) => ({ request: k, n: e.n, kb: Math.round(e.bytes / 1024), types: [...e.types].slice(0, 4), statuses: [...e.statuses].slice(0, 4) }))
         .sort((a, b) => b.n - a.n).slice(0, 150);
@@ -312,5 +431,9 @@ import { MAX_INSPECT_BYTES, classifyResponse, manifestHasText, mayMatter, netfli
     window.postMessage({ __cleancut: 'port' }, location.origin, [channel.port2]);
     for (const msg of backlog.splice(0)) port.postMessage(msg);
     for (const msg of debugBacklog.splice(0)) port.postMessage(msg);
+    if (audioTap) {
+      port.postMessage({ type: 'listen-armed', payload: {} });
+      audioTap.flush();
+    }
   });
 })();

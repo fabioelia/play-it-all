@@ -12,6 +12,7 @@ import { detectAdapter } from './adapters.js';
 import { createNetworkInspector } from './network.js';
 import { CATEGORY_COLORS, Overlay } from './overlay.js';
 import { Flagger, LAST_SECONDS } from './flagger.js';
+import { createListening } from './listen.js';
 
 (() => {
   if (window.__cleancutContent) return;
@@ -97,6 +98,20 @@ import { Flagger, LAST_SECONDS } from './flagger.js';
     };
   }
 
+  // Listening ahead (off unless the viewer turned it on): see listen.js.
+  const listening = createListening({
+    platform: adapter.platform,
+    bg,
+    toHook: (msg) => hookPort?.postMessage(msg),
+    onSegments: (segs) => {
+      state.listening = segs;
+      log('listen-segments', { n: segs.length });
+      replan();
+    },
+    onStatus: () => {},
+    log,
+  });
+
   // ---- state ---------------------------------------------------------------
 
   const state = {
@@ -108,6 +123,7 @@ import { Flagger, LAST_SECONDS } from './flagger.js';
     local: [],
     subtitle: [],
     subtitleInfo: null, // { source: {text}|{cues}, url, sdh, count, cueStarts, mode }
+    listening: [], // segments heard ahead (listen.js), used when there are no captions
     pendingSubs: new Map(), // forId → payload, for tracks that arrive before/after their episode
     profiles: [],
     episode: null, // catalog file for this title, if any
@@ -148,12 +164,13 @@ import { Flagger, LAST_SECONDS } from './flagger.js';
 
   async function loadSettings() {
     if (!alive()) return;
-    const [{ settings }, { activeLists }] = await Promise.all([
+    const [{ settings }, { activeLists, listening: listenPrefs }] = await Promise.all([
       chrome.storage.sync.get('settings'),
-      chrome.storage.local.get('activeLists'),
+      chrome.storage.local.get(['activeLists', 'listening']),
     ]);
     state.settings = { enabled: true, ...(settings || {}), profile: { ...defaultProfile(), ...(settings?.profile || {}) } };
     state.activeLists = activeLists || {};
+    listening.setPrefs(listenPrefs, effectiveProfile().languageMode);
   }
 
   function activeList() {
@@ -200,6 +217,7 @@ import { Flagger, LAST_SECONDS } from './flagger.js';
     if (state.subtitleInfo?.sdh && !(sdh || r.sdh)) return false; // keep the richer SDH track
     state.subtitleInfo = { source, url, sdh: sdh || r.sdh, count: r.count, cueStarts: r.cueStarts, mode };
     state.subtitle = r.segments;
+    listening.setCaptions(true); // captions win over listening
     syncFromSubtitles();
     replan();
     return true;
@@ -248,7 +266,9 @@ import { Flagger, LAST_SECONDS } from './flagger.js';
     // Tags you shared come back through the catalog once merged; count them once.
     const overlaps = (a, b) => a.category === b.category && Math.min(a.end, b.end) - Math.max(a.start, b.start) > 0.6 * (Math.max(a.end, b.end) - Math.min(a.start, b.start));
     const local = state.local.filter((l) => !l.sharedAt || !remote.some((r) => overlaps(r, l)));
-    const all = [...remote, ...local, ...state.subtitle];
+    // Heard segments are on the media clock, like subtitles (no catalog offset).
+    const heard = listening.active() ? state.listening : [];
+    const all = [...remote, ...local, ...state.subtitle, ...heard];
     const list = activeList();
     state.plan = buildPlan(all, effectiveProfile(), { overrides: list?.overrides });
     const duration = state.video?.duration;
@@ -279,7 +299,8 @@ import { Flagger, LAST_SECONDS } from './flagger.js';
     if (!refresh) {
       restorePlayback();
       cancelFlag();
-      Object.assign(state, { remote: [], local: [], subtitle: [], subtitleInfo: null, profiles: [], episode: null, catalogKey: null, via: null, timing: null, alignment: null, disabled: new Set(), lastSeek: null, seekPending: false, markStart: null });
+      Object.assign(state, { remote: [], local: [], subtitle: [], subtitleInfo: null, listening: [], profiles: [], episode: null, catalogKey: null, via: null, timing: null, alignment: null, disabled: new Set(), lastSeek: null, seekPending: false, markStart: null });
+      listening.titleChanged();
       const pending = state.pendingSubs.get(ident.platformId) || state.pendingSubs.get('__unassigned');
       if (pending) handleSubtitles(pending, true);
       state.pendingSubs.clear();
@@ -366,11 +387,17 @@ import { Flagger, LAST_SECONDS } from './flagger.js';
     tickTimer = 0;
   };
   const videoEvents = {
-    seeking: (e) => tick(e),
+    seeking: (e) => {
+      tick(e);
+      if (listening.live()) listening.seek(adapter.currentTime(e.target));
+    },
     loadedmetadata: () => replan(),
     play: () => startTicking(),
     playing: () => startTicking(),
-    pause: () => stopTicking(),
+    pause: (e) => {
+      stopTicking();
+      if (listening.live()) listening.clock(adapter.currentTime(e.target), true, state.ad);
+    },
     ended: () => stopTicking(),
     emptied: () => stopTicking(),
   };
@@ -383,6 +410,7 @@ import { Flagger, LAST_SECONDS } from './flagger.js';
     if (state.video) for (const [type, fn] of Object.entries(videoEvents)) state.video.removeEventListener(type, fn);
     state.video = video;
     overlay.setVideo(video);
+    listening.attach(video);
     if (!video) {
       overlay.detach();
       inspector.deactivate();
@@ -446,6 +474,10 @@ import { Flagger, LAST_SECONDS } from './flagger.js';
   }, { pageFetch, log });
 
   function onHookMessage({ type, payload } = {}) {
+    if (type === 'audio' || type === 'audio-track' || type === 'audio-source' || type === 'audio-type' || type === 'audio-abort' || type === 'listen-armed') {
+      listening.fromHook(type, payload || {});
+      return;
+    }
     if (type === 'response' && payload) inspector.handle(payload);
     else if (type === 'tracks' && payload) {
       log('tracks-from-page', { movieId: payload.movieId, via: payload.via, links: payload.tracks?.length || 0, english: payload.available, withoutLinks: payload.dehydrated, formats: [...new Set((payload.tracks || []).map((t) => t.format))] });
@@ -549,6 +581,8 @@ import { Flagger, LAST_SECONDS } from './flagger.js';
   function tickOnce(event) {
     const ad = !!adapter.isAdPlaying?.();
     if (ad !== state.ad) adChanged(ad);
+    // The playhead for listening ahead (sent at most once a second; nothing when it is off).
+    if (state.video && listening.live()) listening.clock(adapter.currentTime(state.video), state.video.paused, ad);
     if (ad) return restorePlayback(); // never skip, mute or hide during an ad (adapters.js)
     const video = state.video;
     if (!video || !state.plan || !state.settings.enabled || !video.isConnected || video.readyState === 0) {
@@ -856,8 +890,10 @@ import { Flagger, LAST_SECONDS } from './flagger.js';
         community: count((s) => s === 'community' || s === 'scanner'),
         local: count((s) => s === 'local'),
         subtitles: count((s) => s === 'subtitles'),
+        listening: count((s) => s === 'listening'),
       },
       subtitle: state.subtitleInfo ? { cues: state.subtitleInfo.count, sdh: state.subtitleInfo.sdh } : null,
+      listening: listening.snapshot(),
       diag: { hook: !!hookPort, ...inspector.diagnostics() },
       actions: plan?.actions || [],
       flagged: plan?.flagged || [],
@@ -899,7 +935,7 @@ import { Flagger, LAST_SECONDS } from './flagger.js';
             hookConnected: !!hookPort,
             settings: { enabled: state.settings.enabled, profile: snap.profileLabel, languageMode: effectiveProfile().languageMode },
             state: { platform: snap.platform, hasVideo: snap.hasVideo, ident: state.ident ? { platformId: state.ident.platformId, canonicalKey: state.ident.canonicalKey } : null,
-              title: snap.title, duration: snap.duration, catalog: snap.catalog, counts: snap.counts, subtitle: snap.subtitle, cuts: snap.actions.length, diag: snap.diag },
+              title: snap.title, duration: snap.duration, catalog: snap.catalog, counts: snap.counts, subtitle: snap.subtitle, cuts: snap.actions.length, diag: snap.diag, listening: snap.listening },
             errors: [...errorsSeen].map(([k, n]) => ({ error: k, times: n })),
             events: dlog,
             eventsDropped: dlogDropped,
@@ -952,6 +988,10 @@ import { Flagger, LAST_SECONDS } from './flagger.js';
   if (alive()) {
     chrome.storage.onChanged.addListener(async (changes) => {
       if (changes.debug) applyDebug(changes.debug.newValue);
+      if (changes.listening && !changes.settings) {
+        listening.setPrefs(changes.listening.newValue, effectiveProfile().languageMode);
+        replan();
+      }
       if (changes.settings || changes.activeLists) {
         await loadSettings();
         analyzeSubtitles();
@@ -969,6 +1009,7 @@ import { Flagger, LAST_SECONDS } from './flagger.js';
     stopTicking();
     restorePlayback();
     overlay.destroy();
+    listening.stop();
     hookPort?.close();
     window.__cleancutContent = false; // a fresh copy (after the extension reloads) may start
   }

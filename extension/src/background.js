@@ -9,6 +9,8 @@ import { titleKey } from '../../shared/identity.js';
 import { validateSegment } from '../../shared/validate.js';
 import { defaultProfile } from '../../shared/ratings.js';
 import { CATALOG_REPO, DEFAULT_CATALOG, ISSUE_TEMPLATE, MAX_ISSUE_URL } from './config.js';
+import { DEFAULT_MODEL, MODELS, modelBytes, modelPage } from './listen/models.js';
+import { deleteModels, modelStatus } from './listen/store.js';
 
 const TIMEOUT_MS = 8000;
 const TTL_MS = 30 * 60 * 1000; // the catalog changes when pull requests merge: minutes, not seconds
@@ -276,7 +278,96 @@ const handlers = {
   },
 };
 
+// ---- listening ahead: the offscreen document and the speech model -------------------------
+//
+// Off by default. The offscreen document (reason WORKERS) hosts the speech
+// worker; it is created only when a tab starts listening or the viewer
+// downloads the model, and closed again once nothing has used it for a while
+// (it says so: 'listenIdle'). The model is downloaded once, on the viewer's
+// opt-in in the popup. Hugging Face and its CDN answer with CORS headers, so
+// the download needs no host permission.
+
+const LISTEN_MODEL = MODELS[DEFAULT_MODEL];
+const canListen = () => typeof chrome.offscreen?.createDocument === 'function';
+
+async function offscreenOpen() {
+  if (chrome.runtime.getContexts) return (await chrome.runtime.getContexts({ contextTypes: ['OFFSCREEN_DOCUMENT'] })).length > 0;
+  return (await self.clients.matchAll()).some((c) => c.url.endsWith('/offscreen.html'));
+}
+let opening = null;
+async function ensureOffscreen() {
+  if (await offscreenOpen()) return;
+  opening ||= chrome.offscreen.createDocument({
+    url: 'offscreen.html',
+    reasons: ['WORKERS'],
+    justification: 'Recognises speech in the audio a video has already buffered, on this computer, so profanity can be muted before it plays.',
+  }).catch((e) => {
+    if (!/single offscreen/i.test(String(e?.message))) throw e; // one was opened meanwhile
+  }).finally(() => {
+    opening = null;
+  });
+  await opening;
+}
+async function closeOffscreen() {
+  if (await offscreenOpen()) await chrome.offscreen.closeDocument().catch(() => {});
+}
+const toOffscreen = (type, extra = {}) => chrome.runtime.sendMessage({ target: 'offscreen', type, ...extra });
+
+async function listenPrefs(patch) {
+  const { listening = {} } = await chrome.storage.local.get('listening');
+  if (!patch) return listening;
+  const next = { ...listening, ...patch };
+  await chrome.storage.local.set({ listening: next });
+  return next;
+}
+
+Object.assign(handlers, {
+  /** For the popup and Options: is the model here, is it downloading, how big is it. */
+  listenStatus: async () => {
+    if (!canListen()) return { supported: false };
+    const model = await modelStatus(LISTEN_MODEL);
+    const download = (await offscreenOpen()) ? await toOffscreen('offscreen:status').catch(() => null) : null;
+    return {
+      supported: true, model, download, prefs: await listenPrefs(),
+      name: LISTEN_MODEL.name, bytes: modelBytes(LISTEN_MODEL), page: modelPage(LISTEN_MODEL), revision: LISTEN_MODEL.revision.slice(0, 7), license: LISTEN_MODEL.license,
+    };
+  },
+  /** The viewer agreed to the download (popup). Listening turns on when it completes, even if the popup has closed. */
+  listenDownload: async () => {
+    if (!canListen()) return { error: 'This browser can’t run the speech model.' };
+    await listenPrefs({ pending: true, error: null });
+    // Tests serve a local copy of the files; only a localhost address is accepted.
+    const { listenModelHost: host } = await chrome.storage.local.get('listenModelHost');
+    await ensureOffscreen();
+    return toOffscreen('offscreen:download', { host: /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//.test(host || '') ? host : undefined });
+  },
+  listenDownloaded: async (m) => {
+    const prefs = await listenPrefs();
+    if (m.ok) await listenPrefs(prefs.pending ? { on: true, pending: false, error: null } : { error: null });
+    else await listenPrefs({ pending: false, error: m.error || 'download failed' });
+    return {};
+  },
+  /** A tab wants to listen: the model must be here; then the offscreen document is opened for it. */
+  listenStart: async () => {
+    if (!canListen()) return { ok: false, reason: 'unsupported' };
+    if (!(await modelStatus(LISTEN_MODEL)).ready) return { ok: false, reason: 'no-model' };
+    await ensureOffscreen();
+    return { ok: true };
+  },
+  listenDelete: async () => {
+    await closeOffscreen();
+    const deleted = await deleteModels();
+    await listenPrefs({ on: false, pending: false });
+    return { ok: deleted };
+  },
+  listenIdle: async () => {
+    await closeOffscreen();
+    return {};
+  },
+});
+
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg?.target === 'offscreen') return false; // for the offscreen document
   const handler = handlers[msg?.type];
   if (!handler) return false;
   Promise.resolve()

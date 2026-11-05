@@ -76,7 +76,7 @@ function wav(samples, rate) {
  * @param {{ duration: number, voice?: string, log?: Function }} o
  * @returns {Promise<{ dir: string, wav: string, duration: number, lines: object[], words: object[] }>}
  */
-export async function renderSpeech(script, { duration, voice = 'am_michael', log = console.log }) {
+export async function renderSpeech(script, { duration, voice = 'af_heart', log = console.log }) {
   const key = createHash('sha256').update(JSON.stringify({ script, duration, voice, v: 2 })).digest('hex').slice(0, 16);
   const dir = join(CACHE, 'speech', key);
   const meta = join(dir, 'speech.json');

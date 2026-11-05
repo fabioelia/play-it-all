@@ -13,6 +13,7 @@ import { dropHallucinations, listeningSegments, mergeRanges, planWindow, subtrac
 import { buildPlan, decide } from '../shared/engine.js';
 import { defaultProfile } from '../shared/ratings.js';
 import { verifyDigest } from '../extension/src/listen/models.js';
+import { PcmStore, quietCut, resample, rms } from '../extension/src/listen/audio.js';
 
 const hasFfmpeg = spawnSync('ffmpeg', ['-version']).status === 0;
 const dir = mkdtempSync(join(tmpdir(), 'cleancut-media-'));
@@ -214,6 +215,41 @@ test('dropHallucinations: loops and stock silence words go', () => {
   const words = ['so', 'so', 'so', 'so', 'so', 'we', 'go'].map((text, i) => ({ text, start: i, end: i + 0.5 }));
   assert.deepEqual(dropHallucinations(words).map((w) => w.text), ['so', 'we', 'go']);
   assert.deepEqual(dropHallucinations([{ text: '[BLANK_AUDIO]', start: 0, end: 1 }]), []);
+});
+
+test('PcmStore: decoded blocks join into runs on the media clock; a seek starts a new run; read() is 16 kHz', () => {
+  const store = new PcmStore();
+  const block = (n, v) => new Float32Array(n).fill(v);
+  for (let i = 0; i < 50; i++) store.add(i * 0.02, 48000, block(960, 0.1)); // 1 s of 20 ms Opus frames
+  store.add(10, 48000, block(48000, 0.2)); // after a seek
+  store.add(0.5, 48000, block(960, 0.9)); // a re-append of audio already held: ignored
+  assert.deepEqual(store.ranges().map(([a, b]) => [a, +b.toFixed(3)]), [[0, 1], [10, 11]]);
+  const x = store.read(0.5, 10.5);
+  assert.equal(x.length, 160000);
+  assert.ok(Math.abs(x[1000] - 0.1) < 0.01, 'first run');
+  assert.equal(x[50000], 0, 'silence between runs');
+  assert.ok(Math.abs(x[155000] - 0.2) < 0.01, 'second run');
+  // The gap fills in: the runs merge.
+  store.add(1, 48000, block(48000 * 9, 0.3));
+  assert.deepEqual(store.ranges().map(([a, b]) => [a, +b.toFixed(3)]), [[0, 11]]);
+  store.dropBefore(12);
+  assert.deepEqual(store.ranges(), []);
+});
+
+test('resample 44.1 kHz → 16 kHz keeps a 1 kHz tone and removes a 12 kHz one', () => {
+  const tone = (f, rate, n) => Float32Array.from({ length: n }, (_, i) => Math.sin((2 * Math.PI * f * i) / rate));
+  const keep = resample(tone(1000, 44100, 44100), 44100, 16000);
+  assert.equal(keep.length, 16000);
+  assert.ok(rms(keep, 100, 15900) > 0.65, `1 kHz kept: ${rms(keep, 100, 15900)}`);
+  const gone = resample(tone(12000, 44100, 44100), 44100, 16000);
+  assert.ok(rms(gone, 100, 15900) < 0.1, `12 kHz (would alias to 4 kHz) removed: ${rms(gone, 100, 15900)}`);
+});
+
+test('quietCut ends a window in a pause, not in a word', () => {
+  const x = new Float32Array(16000 * 10).fill(0.3);
+  x.fill(0, 16000 * 8.2, 16000 * 8.5); // a pause at 8.2–8.5 s
+  const cut = quietCut(x, 10);
+  assert.ok(cut > 8.2 && cut < 8.5, `cut at ${cut}`);
 });
 
 test('model files are checked against their pinned digests', async () => {

@@ -59,6 +59,10 @@ function manifest(target) {
     m.background = { service_worker: 'background.js' };
     m.minimum_chrome_version = '111';
     m.version_name = `${pkg.version} (${commit})`; // shown on chrome://extensions
+    // Listening ahead: the speech worker runs in an offscreen document, and
+    // onnxruntime-web compiles its WebAssembly (bundled, never downloaded).
+    m.permissions.push('offscreen');
+    m.content_security_policy = { extension_pages: "script-src 'self' 'wasm-unsafe-eval'; object-src 'self'" };
   }
   return m;
 }
@@ -141,11 +145,36 @@ const STATIC = {
   'options.css': 'options/options.css',
 };
 
+// Listening ahead (Chrome only: Firefox has no offscreen documents). The
+// speech worker is an ES module: onnxruntime-web loads its WebAssembly glue
+// (ort/ort-wasm-simd-threaded.mjs) next to it. transformers.js imports
+// onnxruntime-web's WebGPU build; it is pointed at the WebAssembly-only one
+// (11 MB instead of 22 MB), which is all CleanCut uses (see README.md).
+const ortDist = join(here, '..', 'node_modules/onnxruntime-web/dist');
+const ORT_FILES = ['ort-wasm-simd-threaded.mjs', 'ort-wasm-simd-threaded.wasm'];
+const listenEntries = {
+  offscreen: join(src, 'offscreen/offscreen.js'),
+};
+const workerEntry = { 'asr-worker': join(src, 'listen/asr-worker.js') };
+const workerOptions = {
+  format: 'esm',
+  alias: {
+    'onnxruntime-web': join(ortDist, 'ort.wasm.min.mjs'),
+    // One copy of onnxruntime-common: the one onnxruntime-web registers its backend with.
+    'onnxruntime-common': join(here, '..', 'node_modules/onnxruntime-web/node_modules/onnxruntime-common/dist/esm/index.js'),
+  },
+};
+
 function writeStatic(outdir, target) {
   mkdirSync(join(outdir, 'icons'), { recursive: true });
   for (const [to, from] of Object.entries(STATIC)) copyFileSync(join(src, from), join(outdir, to));
   for (const size of [16, 32, 48, 128]) writeFileSync(join(outdir, 'icons', `icon-${size}.png`), png(size, iconPixel));
   writeFileSync(join(outdir, 'manifest.json'), JSON.stringify(manifest(target), null, 2));
+  if (target === 'chrome') {
+    copyFileSync(join(src, 'offscreen/offscreen.html'), join(outdir, 'offscreen.html'));
+    mkdirSync(join(outdir, 'ort'), { recursive: true });
+    for (const f of ORT_FILES) copyFileSync(join(ortDist, f), join(outdir, 'ort', f));
+  }
 }
 
 rmSync(dist, { recursive: true, force: true });
@@ -167,7 +196,12 @@ for (const target of ['chrome', 'firefox']) {
     },
     logLevel: 'warning',
   };
-  for (const o of [options, { ...options, entryPoints: hookEntry, minify: true }]) {
+  const builds = [options, { ...options, entryPoints: hookEntry, minify: true }];
+  if (target === 'chrome') {
+    builds.push({ ...options, entryPoints: listenEntries });
+    builds.push({ ...options, ...workerOptions, entryPoints: workerEntry, minify: true, target: ['chrome111'] });
+  }
+  for (const o of builds) {
     if (watch) {
       const ctx = await esbuild.context(o);
       await ctx.watch();
