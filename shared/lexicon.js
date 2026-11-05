@@ -8,6 +8,11 @@ export const PROFANITY = [
   // strong
   { re: /^(mother)?f+u+c+k+\w*$/, severity: 3 },
   { re: /^f+[*\-#@]+k\w*$/, severity: 3 }, // censored "f**k"
+  // Other censored spellings: letters with stars inside ("sh*t", "f*cking",
+  // "b*tch") or a first letter then stars or dashes ("f***", "s---"). Not
+  // "really*" (emphasis) or "was--" (an interrupted line).
+  { re: /^(f|c|n|mf|motherf)[a-z]*(\*+[a-z]+\*?|\*{2,}[a-z]*|-{2,}[a-z]*)$/, severity: 3 },
+  { re: /^[a-z]+\*+[a-z]+\*?$|^[a-z]{1,2}\*{2,}[a-z]*$|^[a-z]-{2,}[a-z]*$/, severity: 2 },
   { re: /^\w*fuck\w*$/, severity: 3 }, // clusterfuck, unfuckingbelievable
   { re: /^c+u+n+t+s?$/, severity: 3 },
   { re: /^cocksuck\w*$/, severity: 3 },

@@ -294,3 +294,24 @@ test('classifyResponse reads only what the extension needs', async () => {
   assert.equal(classifyResponse('/demo-playback.json', 'localhost'), 'json');
   assert.equal(classifyResponse('/demo.vtt', 'localhost', { contentType: 'text/vtt' }), 'subtitle');
 });
+
+test('bleeped and censored words in captions are muted, not read as sounds', async () => {
+  const { analyzeCues, findProfanity, unbleep } = await import('../shared/analyzer.js');
+  const lang = (text) => analyzeCues([{ start: 1, end: 3, text }]).filter((s) => s.category === 'language').map((s) => s.severity);
+  // YouTube automatic captions, in any caption format (VTT too, not only json3).
+  assert.deepEqual(lang('what the [ __ ] is that'), [3]);
+  assert.deepEqual(lang('[__] off'), [3]);
+  for (const t of ['he said [bleep] to me', 'you (bleep)!', 'oh [censored]', 'well [expletive deleted]', 'you *bleep*', 'shut up, ****!']) assert.deepEqual(lang(t), [3], t);
+  assert.deepEqual(lang('holy sh*t'), [2]);
+  assert.deepEqual(lang('that b*tch'), [2]);
+  assert.deepEqual(lang('what the f***'), [3]);
+  assert.ok(lang('f*cking hell').includes(3), 'f*cking');
+  assert.deepEqual(lang('get the f-- out'), [3]);
+  assert.deepEqual(lang('s--- happens'), [2]);
+  // Not censoring: interrupted lines, emphasis, real sounds.
+  assert.deepEqual(lang('I was-- I mean'), []);
+  assert.deepEqual(lang('it was *really* good'), []);
+  assert.deepEqual(lang('[door closes] okay'), []);
+  assert.deepEqual(findProfanity('a perfectly clean line').length, 0);
+  assert.equal(unbleep('no bleeps here'), 'no bleeps here');
+});

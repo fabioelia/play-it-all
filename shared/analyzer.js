@@ -17,10 +17,21 @@ import { DIALOGUE_HINTS, PROFANE_PHRASES, PROFANITY, SOUND_HINTS } from './lexic
 // dialogue is often written in capitals too.
 const SOUND_RE = /\[([^\]]+)\]|\(([^)]+)\)/g;
 
+// Bleeped words, as captions print them. YouTube's automatic captions write
+// every profanity as "[ __ ]"; broadcasters and uploaders use "[bleep]",
+// "(censored)", "[expletive]" or a run of symbols. These must not be read as
+// sound descriptions (which would drop them): each becomes the censored token
+// "f**k", which the strong censored-word rule matches.
+const BLEEP_RE = /\[\s*_{2,}\s*\]|[[(]\s*(?:bleep(?:ed|s|ing)?|beep(?:ed|s)?|censored|expletive(?:\s+deleted)?)\s*!?\s*[\])]|\*\s*bleep\s*\*/gi;
+const SYMBOL_RUN_RE = /(^|[\s"'(])[*#@$%&!]{3,}(?=$|[\s"'.,!?;:)])/g;
+export function unbleep(text) {
+  return String(text).replace(BLEEP_RE, ' f**k ').replace(SYMBOL_RUN_RE, '$1f**k');
+}
+
 /** Split a cue into sound descriptions and spoken dialogue. */
 export function splitCue(text) {
   const sounds = [];
-  const dialogue = String(text).replace(SOUND_RE, (all, a, b) => {
+  const dialogue = unbleep(text).replace(SOUND_RE, (all, a, b) => {
     sounds.push((a || b).toLowerCase());
     return ' ';
   });
@@ -37,7 +48,9 @@ export function findProfanity(dialogue) {
   const wordRe = /[A-Za-z][A-Za-z'*#@\-]*/g;
   let m;
   while ((m = wordRe.exec(dialogue))) {
-    const token = m[0].toLowerCase().replace(/'/g, '').replace(/-+$/, '');
+    const raw = m[0].toLowerCase().replace(/'/g, '');
+    // "f--" is a censored word; "was--" is an interrupted line.
+    const token = /^[a-z]-{2,}[a-z]*$/.test(raw) ? raw : raw.replace(/-+$/, '');
     for (const entry of PROFANITY) {
       if (entry.re.test(token)) {
         hits.push({ word: m[0], severity: entry.severity, index: m.index });
