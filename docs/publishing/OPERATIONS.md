@@ -60,6 +60,7 @@ The ongoing work is keeping the streaming-site adapters alive, and reviewing cat
 
 - **No votes or accounts.** Quality control is review, not crowd voting. A bad merged tag is fixed by another PR.
 - **GitHub sees the catalog-file requests** (not CleanCut). The privacy policy says so.
+- **Listen ahead adds a second host dependency:** the opt-in speech model comes from Hugging Face. If those files move or change, the checksummed download fails and Listen ahead can't be set up (everything else keeps working). Consider mirroring the model in a GitHub release.
 - **Contributors need a GitHub account**, though not git.
 - **Cold start.** The catalog starts with one demo show.
 - **Scale.** One file per episode and one index. Thousands of episodes is fine; if `index.json` grows past about 1 MB, split it by show or platform.

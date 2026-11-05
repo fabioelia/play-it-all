@@ -44,7 +44,7 @@ npm run package      # → extension/dist/cleancut-chrome.zip  (upload this)
    CleanCut can run on any page with a video. Reviewers often put wildcard hosts in the slow "in-depth review" queue (days to weeks).
    Options: remove it from the store build (then the custom-catalog setting and arbitrary-page mode need `activeTab`-only behaviour,
    and `options.js` needs a guard around `chrome.permissions.request`), or keep it and justify it (section 5). Your call: it's a feature trade-off.
-2. **Host access to 15 services** (53 match patterns in the current build). Each pattern must be justified. Launching with a
+2. **Host access to 15 services** (55 match patterns in the current build). Each pattern must be justified. Launching with a
    smaller set (for example Netflix, Prime Video, YouTube, Vimeo) means a shorter justification, faster review and fewer unverified claims. Add services in later updates as you verify them.
 3. **`https://raw.githubusercontent.com/*`** for the catalog. raw.githubusercontent.com answers cross-origin requests, so this permission may not be needed at all:
    try removing it and check the catalog still loads (untested). If it stays, note that Chrome ignores paths in host permissions, so it covers all of raw.githubusercontent.com.
@@ -65,12 +65,12 @@ Check the output: `npm run package && unzip -p extension/dist/cleancut-chrome.zi
 >
 > HOW IT WORKS
 > • Community catalog: people flag scenes by category and severity; every tag is checked by a bot and reviewed by a person on GitHub before it's published.
-> • Scan-ahead: when the player loads the episode's English subtitles, CleanCut analyzes them in your browser for profanity and revealing sound cues, before those scenes play.
+> • Scan-ahead: when the player loads the episode's English subtitles, CleanCut analyzes them in your browser for profanity and revealing sound cues, before those scenes play. Optional Listen ahead does the same from the audio on sites that don't encrypt it, entirely on your computer.
 > • Your own flags: click Flag scene on the player (or Alt+[ and Alt+]) to mark a scene as you watch, and share it with one click.
 > • Undo any cut with one click. Share your settings as a skip list.
 >
 > PRIVATE BY DESIGN
-> Subtitles are analyzed on your device and never uploaded. No accounts, no CleanCut server, no ads, no tracking, no remote code. The extension just reads public catalog files from GitHub.
+> Subtitles and audio are analyzed on your device and never uploaded. No accounts, no CleanCut server, no ads, no tracking, no remote code. The extension reads public catalog files from GitHub and, only if you opt in to Listen ahead, downloads a speech model once.
 >
 > LIMITS
 > CleanCut can't see the video picture (streaming video is protected), so it relies on the catalog and subtitles and can miss untagged scenes. Streaming sites change often; if something breaks, tell us on the support page. Beta: [LIST ONLY THE SERVICES YOU HAVE VERIFIED].
@@ -99,7 +99,7 @@ Check the output: `npm run package && unzip -p extension/dist/cleancut-chrome.zi
 **Remote code:** *No.* All code is bundled by esbuild into the package, the WebAssembly runtime included. *Listen ahead* downloads a model file (weights, data, not code) from Hugging Face, once, after the user agrees, checked against pinned checksums.
 
 **Data usage disclosures.** Check against the form's current wording. CleanCut receives nothing: no server, no account. The extension reads files from GitHub, and requesting a
-title's file reveals that title to GitHub (the host), which the privacy policy states. If the form's definition of "collect" includes data that reaches a third-party host, tick
+title's file reveals that title to GitHub (the host), and the opt-in speech-model download reveals the viewer's IP address (not what they watch) to Hugging Face. The privacy policy states both. If the form's definition of "collect" includes data that reaches a third-party host, tick
 **Web history**; if unsure, over-disclosing is safer. Nothing else is handled.
 
 **Certifications (tick all three):** data isn't sold; isn't used for unrelated purposes; isn't used for creditworthiness or lending.
