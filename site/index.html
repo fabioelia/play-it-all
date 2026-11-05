@@ -4,91 +4,321 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CleanCut — watch any show at the rating you choose</title>
-<meta name="description" content="CleanCut is a free browser extension that skips, mutes or hides the scenes above your chosen rating while you watch. Make it PG-13, PG or G.">
+<meta name="description" content="CleanCut is a free browser extension that skips, mutes or hides the scenes above your chosen rating on the streaming sites you already use. Make any show PG-13, PG or G.">
 <meta property="og:title" content="CleanCut — watch any show at the rating you choose">
-<meta property="og:description" content="Skip, mute or hide the scenes above your rating. Free browser extension.">
-<meta property="og:image" content="img/overlay.png">
+<meta property="og:description" content="Skip, mute or hide the scenes above your rating. Free browser extension. No account, and subtitles never leave your browser.">
+<meta property="og:type" content="website">
+<meta name="theme-color" content="#f7f6f3" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0c0e13" media="(prefers-color-scheme: dark)">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%232f5fe3'/%3E%3Cpath d='M11 8.5v15l12-7.5z' fill='%23fff'/%3E%3Cpath d='M8 24 24 8' stroke='%232f5fe3' stroke-width='2.4'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
+<script type="application/ld+json">{"@context":"https://schema.org","@type":"SoftwareApplication","name":"CleanCut","applicationCategory":"BrowserApplication","operatingSystem":"Chrome, Edge, Firefox","offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},"description":"Browser extension that skips, mutes or hides scenes above a chosen content rating."}</script>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-check" viewBox="0 0 20 20"><path d="M4 10.5l4 4 8-9" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-lock" viewBox="0 0 20 20"><rect x="4" y="9" width="12" height="8" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M7 9V6.5a3 3 0 016 0V9" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+  <symbol id="i-scissors" viewBox="0 0 20 20"><circle cx="5.5" cy="5.5" r="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="5.5" cy="14.5" r="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M7.5 7l9 8M7.5 13l9-8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-undo" viewBox="0 0 20 20"><path d="M7 5L3.5 8.5 7 12M4 8.5h8a4 4 0 010 8H9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-flag" viewBox="0 0 20 20"><path d="M5 17V3.5M5 4h9l-2 3.5L14 11H5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-sliders" viewBox="0 0 20 20"><path d="M3 6h14M3 14h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="7" cy="6" r="2.2" fill="var(--surface)" stroke="currentColor" stroke-width="1.8"/><circle cx="13" cy="14" r="2.2" fill="var(--surface)" stroke="currentColor" stroke-width="1.8"/></symbol>
+  <symbol id="i-list" viewBox="0 0 20 20"><path d="M7 5h10M7 10h10M7 15h10" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="3.5" cy="5" r="1.2" fill="currentColor"/><circle cx="3.5" cy="10" r="1.2" fill="currentColor"/><circle cx="3.5" cy="15" r="1.2" fill="currentColor"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 20 20"><circle cx="10" cy="10" r="7" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M10 6v4.3l2.8 1.7" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-captions" viewBox="0 0 20 20"><rect x="2.5" y="4" width="15" height="12" rx="2.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M7.5 9.2a1.8 1.8 0 100 1.6M13 9.2a1.8 1.8 0 100 1.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-people" viewBox="0 0 20 20"><circle cx="7.5" cy="7" r="2.8" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M2.5 16c.4-3 2.4-4.5 5-4.5s4.6 1.5 5 4.5M13 4.4a2.8 2.8 0 010 5.2M14.5 12c1.6.5 2.7 1.8 3 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-down" viewBox="0 0 20 20"><path d="M10 3v10m0 0l-4-4m4 4l4-4M4 16.5h12" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</svg>
+
 <header class="site"><div class="wrap">
-  <a class="logo" href="./">✂ CleanCut</a>
-  <nav><a href="#how">How it works</a><a href="#ratings">Ratings</a><a href="#sites">Sites</a><a href="#faq">FAQ</a><a href="support.html">Support</a></nav>
+  <a class="logo" href="./" aria-label="CleanCut home">
+    <svg viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="#2f5fe3"/><path d="M11 8.5v15l12-7.5z" fill="#fff"/><path d="M8 24 24 8" stroke="#2f5fe3" stroke-width="2.4"/></svg>
+    CleanCut
+  </a>
+  <nav aria-label="Main">
+    <a href="#how">How it works</a><a href="#privacy">Privacy</a><a href="#sites">Sites</a><a href="support.html">Support</a>
+    <a class="btn sm js-install" href="#">Add to Chrome</a>
+  </nav>
 </div></header>
 
 <main>
-<div class="wrap">
-  <div class="hero">
+<div class="hero">
+  <div class="wrap">
     <h1>Watch any show at the rating you choose.</h1>
-    <p class="lede">CleanCut runs on top of the streaming sites you already use and skips, mutes or hides the scenes above your rating. Take an R-rated series and watch it as PG-13, PG or G.</p>
-    <a id="install" class="btn" href="#">Add to Chrome — free</a><a class="btn ghost" href="#how">How it works</a>
-    <small id="install-note">Works in Chrome and Edge (Firefox 128+ from source). Currently in beta.</small>
+    <p class="lede">CleanCut skips, mutes or hides the scenes above your rating, on the streaming sites you already use. Make an R-rated series PG-13, PG or G for everyone on the couch.</p>
+    <div class="cta-row">
+      <a class="btn js-install" href="#">Add to Chrome — it’s free</a>
+      <a class="link-arrow" href="#room">See it cut an episode ↓</a>
+    </div>
+    <p class="hint" id="soon">The Chrome Web Store listing is coming soon.</p>
+    <ul class="proof">
+      <li><svg><use href="#i-check"/></svg>Free, no account</li>
+      <li><svg><use href="#i-lock"/></svg>Subtitles never leave your browser</li>
+      <li><svg><use href="#i-check"/></svg>Open source</li>
+    </ul>
+
+    <div class="room" id="room">
+      <div class="room-head">
+        <div class="room-title">Harbor Lights · S1 E3</div>
+        <div class="room-meta">An example episode · 58:00 · 10 flagged scenes</div>
+      </div>
+      <div class="film" aria-hidden="true">
+        <div class="track" id="track"><div class="playhead" id="playhead"></div></div>
+      </div>
+      <div class="ruler" aria-hidden="true"><span style="left:0">0:00</span><span style="left:25.9%">15:00</span><span style="left:51.7%">30:00</span><span style="left:77.6%">45:00</span><span style="left:100%">58:00</span></div>
+
+      <div class="controls">
+        <div class="seg" role="radiogroup" aria-label="Rating" id="seg">
+          <span class="thumb" id="thumb" aria-hidden="true"></span>
+          <button role="radio" aria-checked="false" data-p="unfiltered" tabindex="-1">Uncut</button>
+          <button role="radio" aria-checked="false" data-p="R" tabindex="-1">R</button>
+          <button role="radio" aria-checked="true" data-p="PG-13" tabindex="0">PG-13</button>
+          <button role="radio" aria-checked="false" data-p="PG" tabindex="-1">PG</button>
+          <button role="radio" aria-checked="false" data-p="G" tabindex="-1">G</button>
+        </div>
+        <div class="stats">
+          <div class="stat"><span class="num" id="n-cuts">0</span><span class="lbl" id="l-cuts">scenes cut</span></div>
+          <div class="stat"><span class="num" id="n-skipped">0:00</span><span class="lbl">skipped</span></div>
+          <div class="stat"><span class="num" id="n-runs">58:00</span><span class="lbl">now runs</span></div>
+        </div>
+      </div>
+      <p class="sr-only" id="summary" aria-live="polite"></p>
+      <ul class="scene-list" id="scenes"></ul>
+      <p class="room-note">Illustration with made-up scenes. Ratings use the same limits as the extension’s presets, and language is muted while everything else is skipped by default.</p>
+    </div>
   </div>
-  <div class="shots">
-    <img class="wide" src="img/overlay.png" alt="A video player with a toast reading 'Skipped 0:10 · violence (strong)' and an Undo button, the CleanCut badge, a Flag scene control, and a coloured strip of cuts along the bottom" width="560">
-    <img class="tall" src="img/popup.png" alt="The CleanCut popup: what is playing, the rating buttons Uncut, R, PG-13, PG, G and Custom, and the list of cuts in this episode" width="280">
-  </div>
+</div>
+
+<div class="wrap">
+  <section id="why">
+    <p class="statement">A show is rated for everyone, <em>which means it’s rated for no one in your house.</em> CleanCut lets you decide what your household sees, scene by scene, without hunting for a different version.</p>
+  </section>
 
   <section id="how">
-    <h2>How it works</h2>
-    <div class="grid">
-      <div class="card"><h3>1. Pick a rating</h3><p>Choose R, PG-13, PG or G from the toolbar popup, or tune each category yourself: nudity, sex, violence, gore, language, drugs and frightening scenes.</p></div>
-      <div class="card"><h3>2. It finds the scenes</h3><p>CleanCut combines the community catalog of reviewed scene tags with a scan of the episode's own subtitles, run in your browser before the scenes play.</p></div>
-      <div class="card"><h3>3. You just watch</h3><p>Scenes above your rating are skipped, muted or the picture is hidden. A small toast says what happened, and <strong>Undo</strong> lets any scene play.</p></div>
+    <div class="sec-head"><h2>Three steps, then just watch.</h2></div>
+    <div class="steps">
+      <div class="step">
+        <span class="n">1</span>
+        <h3>Pick a rating</h3>
+        <p>R, PG-13, PG or G, or set each category yourself. Each rating is a limit per category, from mild to strong.</p>
+        <div class="mini" aria-label="PG-13 limits per category">
+          <div class="cat-row" style="--cat:var(--c-nudity)"><i></i>Nudity<span class="pips"><b></b><b></b><b></b></span></div>
+          <div class="cat-row" style="--cat:var(--c-sex)"><i></i>Sexual content<span class="pips"><b class="on"></b><b></b><b></b></span></div>
+          <div class="cat-row" style="--cat:var(--c-violence)"><i></i>Violence<span class="pips"><b class="on"></b><b class="on"></b><b></b></span></div>
+          <div class="cat-row" style="--cat:var(--c-gore)"><i></i>Gore<span class="pips"><b class="on"></b><b></b><b></b></span></div>
+          <div class="cat-row" style="--cat:var(--c-language)"><i></i>Language<span class="pips"><b class="on"></b><b class="on"></b><b></b></span></div>
+          <div class="cat-row" style="--cat:var(--c-drugs)"><i></i>Drugs &amp; alcohol<span class="pips"><b class="on"></b><b class="on"></b><b></b></span></div>
+          <div class="cat-row" style="--cat:var(--c-frightening)"><i></i>Frightening<span class="pips"><b class="on"></b><b class="on"></b><b class="on"></b></span></div>
+        </div>
+      </div>
+      <div class="step">
+        <span class="n">2</span>
+        <h3>It finds the scenes</h3>
+        <p>Three sources work together, so a scene isn’t missed just because one of them doesn’t know it.</p>
+        <div class="mini">
+          <div class="src"><svg><use href="#i-people"/></svg><div><b>Community catalog</b><span>Scenes flagged by people and reviewed on GitHub</span></div></div>
+          <div class="src"><svg><use href="#i-captions"/></svg><div><b>Subtitle scan</b><span>Read in your browser before the scene plays</span></div></div>
+          <div class="src"><svg><use href="#i-flag"/></svg><div><b>Your own flags</b><span>One click on the player while you watch</span></div></div>
+        </div>
+      </div>
+      <div class="step">
+        <span class="n">3</span>
+        <h3>You just watch</h3>
+        <p>Scenes above your rating are skipped, muted, or the picture is hidden. A toast says what happened, and Undo is one click.</p>
+        <div class="mini">
+          <div class="toast"><i></i><span>Skipped 0:42–0:53<br><small style="opacity:.7">Sexual content · strong</small></span><span class="undo">Undo</span></div>
+          <p class="toast-note">Not what you wanted? Undo lets that scene play, and only that scene.</p>
+        </div>
+      </div>
     </div>
   </section>
 
-  <section id="ratings">
-    <h2>Ratings you can see</h2>
-    <p>Each preset is the highest level allowed to play, from mild to strong. Anything above it is cut. Language is muted by default and everything else is skipped, and you can switch any category to skip, mute or hide the picture.</p>
-    <table>
-      <tr><th>Preset</th><th>Nudity</th><th>Sex</th><th>Violence</th><th>Gore</th><th>Language</th><th>Drugs</th><th>Frightening</th></tr>
-      <tr><td>R</td><td>moderate</td><td>moderate</td><td>any</td><td>moderate</td><td>any</td><td>any</td><td>any</td></tr>
-      <tr><td>PG-13</td><td>none</td><td>mild</td><td>moderate</td><td>mild</td><td>moderate</td><td>moderate</td><td>any</td></tr>
-      <tr><td>PG</td><td>none</td><td>none</td><td>mild</td><td>none</td><td>mild</td><td>mild</td><td>moderate</td></tr>
-      <tr><td>G</td><td>none</td><td>none</td><td>none</td><td>none</td><td>none</td><td>none</td><td>mild</td></tr>
-    </table>
+  <section id="extension">
+    <div class="showcase">
+      <div>
+        <div class="sec-head" style="margin-bottom:0"><h2>Everything you need is one click away.</h2><p>The toolbar popup shows what’s playing, what’s being cut and why, and lets you change your mind.</p></div>
+        <ul class="ticks">
+          <li><svg><use href="#i-sliders"/></svg><span><b>Change the rating any time.</b> The cut list updates as you switch.</span></li>
+          <li><svg><use href="#i-undo"/></svg><span><b>Let any scene play.</b> Every cut has a Let play button.</span></li>
+          <li><svg><use href="#i-flag"/></svg><span><b>Flag what the catalog missed.</b> Click Flag a scene, or use <code>Alt</code>+<code>[</code> and <code>Alt</code>+<code>]</code>.</span></li>
+          <li><svg><use href="#i-list"/></svg><span><b>Share your settings.</b> Publish a skip list like “Family movie night” for others to use.</span></li>
+        </ul>
+      </div>
+      <div class="browser">
+        <div class="chrome" aria-hidden="true"><span class="dots"><i></i><i></i><i></i></span><span class="url">your streaming site</span>
+          <svg class="ext" viewBox="0 0 32 32"><rect width="32" height="32" rx="7" fill="#2f5fe3"/><path d="M11 8.5v15l12-7.5z" fill="#fff"/><path d="M8 24 24 8" stroke="#2f5fe3" stroke-width="2.4"/></svg></div>
+        <div class="popup-shot">
+          <picture>
+            <source media="(prefers-color-scheme: dark)" srcset="img/popup-dark.webp">
+            <img src="img/popup-light.webp" width="720" height="1642" alt="The CleanCut popup for a Netflix episode: Rating PG-13, 4 cuts, 0:27 skipped. The rating buttons Uncut, R, PG-13, PG, G and Custom. A list of cuts in this episode (Violence, Sexual content, Language, Gore), each with a Let play button, and a Flag a scene on the player button." loading="lazy">
+          </picture>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="features">
+    <div class="sec-head"><h2>Made for how families actually watch.</h2></div>
+    <div class="grid">
+      <div class="card"><div class="ico"><svg><use href="#i-scissors"/></svg></div><h3>Skip, mute or hide</h3><p>Skip a scene, mute the language, or darken the picture and keep the audio. Choose per category.</p></div>
+      <div class="card"><div class="ico"><svg><use href="#i-sliders"/></svg></div><h3>Fine-tune every category</h3><p>Seven categories, three severities. Start from a rating, then adjust until it fits your household.</p></div>
+      <div class="card"><div class="ico"><svg><use href="#i-captions"/></svg></div><h3>Finds scenes before they play</h3><p>CleanCut scans the episode’s subtitles for profanity and revealing sound cues the moment the player loads them.</p></div>
+      <div class="card"><div class="ico"><svg><use href="#i-clock"/></svg></div><h3>Stays in sync</h3><p>Timing can drift after ads. A Sync nudge fixes it, and tags made on one service line up on another.</p></div>
+      <div class="card"><div class="ico"><svg><use href="#i-people"/></svg></div><h3>Reviewed by people</h3><p>Every community tag is checked by a bot and a person on GitHub before it reaches anyone else.</p></div>
+      <div class="card"><div class="ico"><svg><use href="#i-list"/></svg></div><h3>Skip lists you can share</h3><p>Publish your settings for one show or for everything, and adopt other people’s with one click.</p></div>
+    </div>
+  </section>
+
+  <section id="privacy">
+    <div class="privacy">
+      <div>
+        <h2>Nothing about you leaves your browser.</h2>
+        <p>There’s no account to make and no CleanCut server to talk to. Subtitles are analyzed on your device and never uploaded, and CleanCut doesn’t know what you watch.</p>
+        <p>The extension only <em>downloads</em> a public catalog of scene tags from GitHub. Read exactly what it does in the <a href="privacy.html">privacy policy</a>, or read <a href="https://github.com/fabioelia/play-it-all">the code</a>.</p>
+      </div>
+      <div class="flow" aria-label="Data flow: the catalog flows from GitHub into your browser; nothing flows back">
+        <div class="node"><b>GitHub</b><span>Public catalog of reviewed scene tags</span></div>
+        <div class="arrow"><svg><use href="#i-down"/></svg>Catalog files come in</div>
+        <div class="node you"><b>Your browser</b><span>Subtitles, settings and flags stay here</span></div>
+        <div class="arrow"><svg><use href="#i-lock"/></svg>Nothing about you goes out</div>
+      </div>
+    </div>
   </section>
 
   <section id="sites">
-    <h2>Where it works</h2>
-    <p>Netflix, Prime Video, YouTube, Disney+, HBO Max, Hulu, Apple TV, Paramount+, Peacock, Crunchyroll, Tubi, Pluto TV, The Roku Channel, Plex and Vimeo, plus a manual mode for any page with a video.</p>
-    <p class="note"><strong>Beta, honestly:</strong> Vimeo is verified on the live site and YouTube on recorded copies of its pages. The subscription services are built against each site's current player but haven't yet been verified with live accounts, and streaming sites change without notice. If something doesn't work on your service, <a href="support.html">tell us</a>. That is how the list gets verified. The <a href="https://github.com/fabioelia/play-it-all#supported-sites">status of each service</a> is public.</p>
-  </section>
-
-  <section>
-    <h2>Built to stay out of your way</h2>
-    <div class="grid">
-      <div class="card"><h3>Private by design</h3><p>Subtitles are analyzed on your device and never uploaded. There are no accounts and no CleanCut server. The extension reads a public catalog of tags from GitHub.</p></div>
-      <div class="card"><h3>Community powered, reviewed</h3><p>Flag a scene while you watch, then share it with one click. Every tag goes through a bot check and a person's review on GitHub before anyone else gets it. <a href="https://github.com/fabioelia/play-it-all/blob/main/CONTRIBUTING.md">See how</a>.</p></div>
-      <div class="card"><h3>You stay in control</h3><p>CleanCut never copies, edits or redistributes a video. It only skips, mutes or hides what's playing on your screen, for your own viewing.</p></div>
+    <div class="sec-head"><h2>Where it works.</h2><p>Fifteen services, plus a manual mode for any page with a video.</p></div>
+    <div class="sites">
+      <span class="site-chip live"><i></i>Vimeo</span><span class="site-chip rec"><i></i>YouTube</span>
+      <span class="site-chip"><i></i>Netflix</span><span class="site-chip"><i></i>Prime Video</span><span class="site-chip"><i></i>Disney+</span><span class="site-chip"><i></i>HBO Max</span><span class="site-chip"><i></i>Hulu</span><span class="site-chip"><i></i>Apple TV</span><span class="site-chip"><i></i>Paramount+</span><span class="site-chip"><i></i>Peacock</span><span class="site-chip"><i></i>Crunchyroll</span><span class="site-chip"><i></i>Tubi</span><span class="site-chip"><i></i>Pluto TV</span><span class="site-chip"><i></i>The Roku Channel</span><span class="site-chip"><i></i>Plex</span>
     </div>
+    <p class="legend"><span><i style="background:#2f9e60"></i>Verified on the live site</span><span><i style="background:var(--accent)"></i>Verified on recorded pages</span><span><i style="background:var(--line)"></i>Beta</span></p>
+    <p class="note"><strong>Beta, honestly.</strong> The subscription services are built against each site’s current player but haven’t yet been verified with live accounts, and streaming sites change without notice. If something doesn’t work on yours, <a href="support.html">tell us</a>. That’s how the list gets verified.</p>
   </section>
 
   <section id="faq">
-    <h2>Questions</h2>
-    <details><summary>Why does it say "subtitles not scanned yet"?</summary><p>The scan uses the English subtitle file the player downloads. Turn on English captions once, and the scan runs. You can hide the captions again afterwards.</p></details>
-    <details><summary>Does it see the video frames?</summary><p>No. Streaming video is protected, so extensions can't read the picture. CleanCut works from the catalog and subtitles, so it can miss a scene that has neither. That's why community flags matter, and why machine-detected scenes are shown as suggestions until you trust them.</p></details>
-    <details><summary>Why do skips land late on some services?</summary><p>Where ads are stitched into the stream (several free and ad-supported tiers), the player's clock runs ahead of the episode after each ad break. CleanCut shows only the badge during ads, and the popup has a <strong>Sync</strong> nudge for timing that's off.</p></details>
-    <details><summary>Who checks the community tags?</summary><p>Every tag and skip list is a file submitted through GitHub. A bot validates it, and a person reviews it before it's published. You can read every file in the <a href="https://github.com/fabioelia/play-it-all/tree/main/catalog">public catalog</a>.</p></details>
-    <details><summary>Is it legal?</summary><p>In the US, the Family Movie Act of 2005 allows skipping and muting parts of a film for private home viewing, as long as no altered copy is made. CleanCut works that way. Streaming services' terms and laws in other countries differ. This is not legal advice.</p></details>
-    <details><summary>What does it cost?</summary><p>Nothing. There are no ads and no tracking.</p></details>
-    <details><summary>Is it affiliated with Netflix, Amazon or any streaming service?</summary><p>No. CleanCut is an independent project. All service names are trademarks of their respective owners.</p></details>
+    <div class="sec-head"><h2>Questions.</h2></div>
+    <div class="faq">
+      <details><summary>Why does it say “subtitles not scanned yet”?</summary><p>The scan uses the English subtitle file the player downloads. Turn on English captions once and the scan runs. You can hide the captions again afterwards.</p></details>
+      <details><summary>Does it see the video frames?</summary><p>No. Streaming video is protected, so extensions can’t read the picture. CleanCut works from the catalog and the subtitles, so it can miss a scene that has neither. That’s why community flags matter, and why machine-detected scenes are treated as suggestions until you trust them.</p></details>
+      <details><summary>Why do skips land late on some services?</summary><p>Where ads are stitched into the stream, the player’s clock runs ahead of the episode after each ad break. CleanCut shows only its badge during ads, and the popup has a Sync nudge for timing that’s off.</p></details>
+      <details><summary>Who checks the community tags?</summary><p>Every tag and skip list is a file submitted through GitHub. A bot validates it and a person reviews it before it’s published. You can read every file in the <a href="https://github.com/fabioelia/play-it-all/tree/main/catalog">public catalog</a>.</p></details>
+      <details><summary>Is it legal?</summary><p>In the US, the Family Movie Act of 2005 allows skipping and muting parts of a film for private home viewing, as long as no altered copy is made. CleanCut works that way: it never copies, edits or redistributes a video. Streaming services’ terms and laws in other countries differ. This is not legal advice.</p></details>
+      <details><summary>What does it cost?</summary><p>Nothing. There are no ads, no tracking and no paid tier.</p></details>
+      <details><summary>Is it affiliated with Netflix, Amazon or any streaming service?</summary><p>No. CleanCut is an independent project. All service names are trademarks of their respective owners.</p></details>
+    </div>
   </section>
+
+  <div class="final">
+    <h2>Make tonight’s show fit the room.</h2>
+    <p>Free, with no account, and you can uninstall it any time. Pick a rating and press play.</p>
+    <a class="btn js-install" href="#">Add to Chrome — it’s free</a>
+  </div>
 </div>
 </main>
 
 <footer class="site"><div class="wrap">
-  © CleanCut · <a href="privacy.html">Privacy</a> · <a href="support.html">Support</a> · <a href="https://github.com/fabioelia/play-it-all">Source</a><br>
-  CleanCut is not affiliated with, endorsed by or sponsored by Netflix, Amazon, Google or any other streaming service.
+  <p>© CleanCut · <a href="privacy.html">Privacy</a> · <a href="support.html">Support</a> · <a href="https://github.com/fabioelia/play-it-all">Source</a><br>
+  CleanCut is not affiliated with, endorsed by or sponsored by Netflix, Amazon, Google or any other streaming service.</p>
 </div></footer>
 
 <script>
-  // Set this to the Chrome Web Store listing URL once it's published.
-  var STORE_URL = '';
-  var btn = document.getElementById('install');
-  if (STORE_URL) { btn.href = STORE_URL; }
-  else { btn.textContent = 'Coming soon to the Chrome Web Store'; btn.setAttribute('aria-disabled', 'true'); }
+// Set this to the Chrome Web Store listing URL once it's published.
+var STORE_URL = '';
+document.querySelectorAll('.js-install').forEach(function (a) {
+  if (STORE_URL) a.href = STORE_URL;
+  else { a.textContent = a.classList.contains('sm') ? 'Follow on GitHub' : 'Follow the launch on GitHub'; a.href = 'https://github.com/fabioelia/play-it-all'; }
+});
+if (STORE_URL) { var soon = document.getElementById('soon'); if (soon) soon.remove(); }
+
+(function () {
+  // The extension's rating presets: the highest severity that still plays (1 mild, 2 moderate, 3 strong).
+  var PRESETS = {
+    unfiltered: { nudity: 3, sex: 3, violence: 3, gore: 3, language: 3, drugs: 3, frightening: 3 },
+    'R':        { nudity: 2, sex: 2, violence: 3, gore: 2, language: 3, drugs: 3, frightening: 3 },
+    'PG-13':    { nudity: 0, sex: 1, violence: 2, gore: 1, language: 2, drugs: 2, frightening: 3 },
+    'PG':       { nudity: 0, sex: 0, violence: 1, gore: 0, language: 1, drugs: 1, frightening: 2 },
+    'G':        { nudity: 0, sex: 0, violence: 0, gore: 0, language: 0, drugs: 0, frightening: 1 }
+  };
+  var LABEL = { nudity: 'Nudity', sex: 'Sexual content', violence: 'Violence', gore: 'Gore', language: 'Language', drugs: 'Drugs & alcohol', frightening: 'Frightening' };
+  var SEV = { 1: 'mild', 2: 'moderate', 3: 'strong' };
+  var TOTAL = 58 * 60;
+  var SCENES = [ // [start s, length s, category, severity]
+    [250, 20, 'language', 3], [570, 70, 'violence', 2], [920, 80, 'sex', 3], [1265, 25, 'drugs', 2], [1660, 50, 'gore', 3],
+    [1995, 25, 'frightening', 2], [2280, 40, 'nudity', 2], [2650, 15, 'language', 2], [2970, 70, 'violence', 3], [3240, 15, 'sex', 1]
+  ];
+  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var $ = function (id) { return document.getElementById(id); };
+  var fmt = function (s) { s = Math.round(s); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+  var track = $('track'), list = $('scenes'), playhead = $('playhead');
+
+  var els = SCENES.map(function (s) {
+    var d = document.createElement('div');
+    d.className = 'scene'; d.dataset.state = 'play';
+    d.style.left = (s[0] / TOTAL * 100) + '%'; d.style.width = (s[1] / TOTAL * 100) + '%';
+    d.style.setProperty('--cat', 'var(--c-' + s[2] + ')');
+    track.insertBefore(d, playhead);
+    var li = document.createElement('li');
+    li.style.setProperty('--cat', 'var(--c-' + s[2] + ')');
+    li.innerHTML = '<span class="t">' + fmt(s[0]) + '</span><span class="c"><i></i>' + LABEL[s[2]] + ' <small>' + SEV[s[3]] + '</small></span><span class="chip"></span>';
+    list.appendChild(li);
+    return { el: d, li: li, chip: li.querySelector('.chip'), s: s, action: 'play' };
+  });
+
+  var raf = 0, current = 'PG-13';
+  function apply(preset) {
+    current = preset;
+    var limits = PRESETS[preset], cuts = 0, skipped = 0, muted = 0;
+    els.forEach(function (o) {
+      var over = o.s[3] > limits[o.s[2]];
+      o.action = !over ? 'play' : (o.s[2] === 'language' ? 'mute' : 'skip');
+      o.el.dataset.state = o.action; o.li.dataset.state = o.action;
+      o.chip.textContent = o.action === 'play' ? 'Plays' : o.action === 'mute' ? 'Muted' : 'Skipped';
+      if (over) cuts++;
+      if (o.action === 'skip') skipped += o.s[1];
+      if (o.action === 'mute') muted++;
+    });
+    $('n-cuts').textContent = cuts;
+    $('l-cuts').textContent = cuts === 1 ? 'scene cut' : 'scenes cut';
+    $('n-skipped').textContent = fmt(skipped);
+    $('n-runs').textContent = fmt(TOTAL - skipped);
+    $('summary').textContent = preset + ': ' + cuts + (cuts === 1 ? ' scene' : ' scenes') + ' cut, ' + fmt(skipped) + ' skipped, runs ' + fmt(TOTAL - skipped) + '.';
+    sweep();
+  }
+
+  // One orchestrated moment: a playhead runs the episode and jumps over the scenes that get cut.
+  function sweep() {
+    cancelAnimationFrame(raf);
+    els.forEach(function (o) { o.el.classList.remove('flash'); });
+    if (reduce) { playhead.classList.remove('on'); return; }
+    var media = 0, last = performance.now(), RATE = TOTAL / 5.5, token = current;
+    playhead.classList.add('on');
+    (function frame(now) {
+      if (token !== current) return;
+      media += (now - last) / 1000 * RATE; last = now;
+      els.forEach(function (o) {
+        if (o.action === 'skip' && media >= o.s[0] && media < o.s[0] + o.s[1]) { media = o.s[0] + o.s[1]; flash(o); }
+        else if (o.action === 'mute' && media >= o.s[0] && media < o.s[0] + o.s[1] && !o.el.classList.contains('flash')) flash(o);
+      });
+      playhead.style.left = Math.min(media / TOTAL, 1) * 100 + '%';
+      if (media < TOTAL) raf = requestAnimationFrame(frame); else setTimeout(function () { if (token === current) playhead.classList.remove('on'); }, 500);
+    })(last);
+  }
+  function flash(o) { o.el.classList.add('flash'); setTimeout(function () { o.el.classList.remove('flash'); }, 380); }
+
+  var seg = $('seg'), btns = Array.prototype.slice.call(seg.querySelectorAll('button')), thumb = $('thumb');
+  function select(i, focus) {
+    btns.forEach(function (b, j) { b.setAttribute('aria-checked', String(i === j)); b.tabIndex = i === j ? 0 : -1; });
+    thumb.style.transform = 'translateX(' + (i * 100) + '%)';
+    if (focus) btns[i].focus();
+    apply(btns[i].dataset.p);
+  }
+  btns.forEach(function (b, i) { b.addEventListener('click', function () { select(i, false); }); });
+  seg.addEventListener('keydown', function (e) {
+    var i = btns.findIndex(function (b) { return b.getAttribute('aria-checked') === 'true'; });
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown') { e.preventDefault(); select((i + 1) % btns.length, true); }
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') { e.preventDefault(); select((i + btns.length - 1) % btns.length, true); }
+  });
+  thumb.style.transition = 'none'; select(2, false); requestAnimationFrame(function () { thumb.style.transition = ''; });
+})();
 </script>
 </body>
 </html>
