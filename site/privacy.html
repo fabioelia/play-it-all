@@ -17,6 +17,7 @@
 <h2>What stays on your device</h2>
 <ul>
   <li><strong>Subtitles.</strong> The extension reads the subtitle file the video player uses and analyzes it locally to find profanity and scene hints. Subtitle text is never sent to us or to anyone else.</li>
+  <li><strong>Audio, if you turn on <em>Listen ahead</em>.</strong> For videos without captions, on sites that don't encrypt their audio (YouTube, Vimeo and the like; never Netflix, Prime Video, Disney+ or other DRM services), the extension can transcribe the audio the player has already downloaded, with a speech recognition model that runs on your computer, to find profanity before it plays. The audio and the transcript are never sent anywhere and are not kept: they're held in memory only while the video plays. It is off until you turn it on.</li>
   <li><strong>Your settings</strong> (chosen rating, per-category choices, actions, timing adjustments). These live in the browser's extension storage. If you're signed in to Chrome with sync turned on, the browser may sync them across your devices as it does for any extension.</li>
   <li><strong>Your own flags</strong> and a cache of recently used catalog files are stored locally in the extension.</li>
   <li><strong>An optional debug log</strong> is off unless you tick <em>Record a debug log</em> in the popup. It stays in your browser, is never sent automatically, and is saved to a file only if you click <em>Save debug log</em>.</li>
@@ -28,6 +29,7 @@
   <li>Those requests are made to <strong>GitHub</strong>, which is the host of the files. GitHub can see your IP address, the file requested (which reveals the title) and standard browser details, as with any web request. We don't receive these requests. GitHub's own privacy statement applies to them.</li>
   <li><strong>Subtitle files</strong> are fetched from the streaming site you're already using (the same file the player loads) to analyze locally.</li>
   <li>If you point CleanCut at a different catalog address in Options, requests go to that host instead.</li>
+  <li><strong>The speech model</strong> (about 44 MB), only if you turn on <em>Listen ahead</em> and agree to the download. It is downloaded once from <strong>Hugging Face</strong> (<code>huggingface.co</code> and its file servers), checked against fixed checksums, and kept in the extension's storage; you can delete it in Options. Hugging Face sees your IP address and which model files were requested, as with any download; it doesn't see what you watch.</li>
   <li>The extension never uploads the title you watch, your viewing history, your account on any streaming site, or subtitles.</li>
 </ul>
 
@@ -46,6 +48,7 @@
   <li><strong>Access to the supported streaming sites</strong> (Netflix, Prime Video, YouTube, Disney+, HBO Max, Hulu, Apple TV, Paramount+, Peacock, Crunchyroll, Tubi, Pluto TV, The Roku Channel, Plex, Vimeo): to detect what's playing, read its subtitle track, and skip, mute or hide the player.</li>
   <li><strong>Access to raw.githubusercontent.com:</strong> to read the community catalog.</li>
   <li><strong>storage:</strong> to save your settings and flags.</li>
+  <li><strong>offscreen:</strong> used only when <em>Listen ahead</em> is on, to run the speech model in the extension's own background page instead of on the video's page. No extra site access is needed for the model download.</li>
   <li><strong>activeTab / scripting:</strong> so CleanCut can run on a page when you click its toolbar button, and so the popup can control the current tab's player.</li>
   <li><strong>Optional access to other sites:</strong> asked for at the moment you choose to use a custom catalog address, or to use CleanCut on another page. You can decline.</li>
 </ul>

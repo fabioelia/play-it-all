@@ -222,7 +222,8 @@ try {
           if (hit) {
             found.push(truth.word);
             // Fully muted, once the engine's own 0.25 s on each side is added?
-            if (hit.start - 0.25 <= truth.start && hit.end + 0.25 >= truth.end) covered++;
+            // Fully muted? The engine pads each cut by 0.25 s and starts it 0.15 s early (shared/engine.js).
+            if (hit.start - 0.25 - 0.15 <= truth.start && hit.end + 0.25 >= truth.end) covered++;
             const w = heardAs(s.words || [], truth);
             if (w && model.words) {
               timeErr.push(Math.abs(w.start - truth.start), Math.abs(w.end - truth.end));

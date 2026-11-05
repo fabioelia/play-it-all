@@ -159,6 +159,15 @@ try {
     assert.ok(muted.at > swear2.start - 0.9 && muted.at <= swear2.start, `muted at ${muted.at.toFixed(2)}, word at ${swear2.start}`);
   });
 
+  await step('AAC in fragmented MP4 (DASH, Vimeo) is heard too', async () => {
+    await open('?audio=mp4');
+    await playFrom(swear1.start - 12);
+    const seg = await waitFor(() => heardSegment(swear1), { timeout: 20_000, interval: 200, what: `a listening segment at ${swear1.start}s (AAC)` });
+    const at = await now();
+    assert.ok(at < swear1.start - 0.5, `found at playhead ${at.toFixed(1)}s, the word is at ${swear1.start}s`);
+    assert.ok(seg.start <= swear1.start && seg.end >= swear1.end - 0.15, `segment ${seg.start.toFixed(2)}–${seg.end.toFixed(2)}`);
+  });
+
   await step('the popup says how far it has listened, and counts what it found', async () => {
     const popup = await popupFor();
     await popup.locator('#now-listen', { hasText: /Listening ahead · (paused, )?transcribed to \d+:\d\d/ }).waitFor({ timeout: 5000 });

@@ -68,6 +68,22 @@ export async function makeListenDemo(out = join(CACHE, 'listen-demo'), { log = c
   return { ...speech, dir };
 }
 
+/** A heavier picture for the benchmark (test/perf/listen-sim.mjs): 1280×720 VP9, added to the demo's index. */
+export function ensureBenchVideo(dir, { log = console.log } = {}) {
+  const file = join(dir, 'video-720.webm');
+  const indexFile = join(dir, 'index.json');
+  const index = JSON.parse(readFileSync(indexFile, 'utf8'));
+  if (existsSync(file) && index.tracks['video-720.webm']) return file;
+  log('  encoding a 720p video for the benchmark (once) …');
+  execFileSync('ffmpeg', ['-v', 'error', '-y', '-f', 'lavfi', '-i', `testsrc2=size=1280x720:rate=30:duration=${DURATION}`,
+    '-c:v', 'libvpx-vp9', '-b:v', '2M', '-deadline', 'realtime', '-cpu-used', '8', '-row-mt', '1', '-g', '150', '-keyint_min', '150',
+    '-f', 'webm', '-dash', '1', '-cluster_time_limit', '5000', file]);
+  const segments = mediaSegments(new Uint8Array(readFileSync(file)));
+  index.tracks['video-720.webm'] = { mime: 'video/webm; codecs="vp9"', init: segments[0].start, segments: segments.map(({ start, end, time }) => [start, end, +time.toFixed(3)]) };
+  writeFileSync(indexFile, JSON.stringify(index));
+  return file;
+}
+
 const MIMES = {
   'audio.webm': 'audio/webm; codecs="opus"',
   'audio.mp4': 'audio/mp4; codecs="mp4a.40.2"',

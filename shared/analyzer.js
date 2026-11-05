@@ -108,6 +108,7 @@ export function findProfanity(dialogue) {
 // Profanity in a transcript is near-certain; keep a little doubt for
 // homographs ("hell", "ass" the animal).
 const SUBTITLE_CONFIDENCE = (severity) => (severity === 1 ? 0.8 : 0.95);
+const MIN_SPOKEN = 0.35; // seconds: the shortest a measured profanity is taken to last
 
 /**
  * @param {Array<{start:number,end:number,text:string,words?:Array<{text:string,start:number,end:number}>}>} cues
@@ -145,8 +146,10 @@ export function analyzeCues(cues, opts = {}) {
       let end = cue.end;
       const said = spans && spanTime(spans, hit.index, hit.index + hit.word.length);
       if (said) {
+        // A recogniser sometimes gives a word next to no duration (the last
+        // word before a pause): mute at least as long as a short swear lasts.
         start = Math.max(0, said.start - timedPad);
-        end = said.end + timedPad;
+        end = Math.max(said.end, said.start + MIN_SPOKEN) + timedPad;
       } else if (languageMode === 'word') {
         // Estimate when the word is spoken from its position in the line.
         const len = Math.max(1, dialogue.trim().length);

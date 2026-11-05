@@ -33,7 +33,7 @@ const ROUTES = [
   ['/demo/listen', join(root, 'demo/listen.html')],
 ];
 // The listening demo's media (generated: `npm run demo:listen`, kept outside the repo).
-const LISTEN_FILES = new Set(['index.json', 'speech.json', 'audio.webm', 'audio.mp4', 'audio-enc.mp4', 'video.webm']);
+const LISTEN_FILES = new Set(['index.json', 'speech.json', 'audio.webm', 'audio.mp4', 'audio-enc.mp4', 'video.webm', 'video-720.webm']);
 function listenMediaDir() {
   if (process.env.LISTEN_MEDIA_DIR) return process.env.LISTEN_MEDIA_DIR;
   const base = join(process.env.CLEANCUT_CACHE || join(homedir(), '.cache', 'cleancut'), 'listen-demo');

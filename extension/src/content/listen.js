@@ -53,7 +53,7 @@ export function createListening({ platform, bg, toHook, onSegments, onStatus, lo
   let selected = null;
   let lastClock = { t: -1, paused: null, ad: null };
   let segments = [];
-  const st = { state: 'off', detail: null, heardTo: null, words: 0, bytes: 0, appends: 0 };
+  const st = { state: 'off', detail: null, heardTo: null, words: 0, bytes: 0, appends: 0, relayMs: 0 };
 
   const allowed = () => prefs.on && prefs.sites?.[host] !== false;
   const wanted = () => allowed() && !encrypted && !!video && (!captions || prefs.always);
@@ -242,7 +242,9 @@ export function createListening({ platform, bg, toHook, onSegments, onStatus, lo
         st.bytes += payload.bytes?.byteLength || 0;
         // Queued until the worker is connected (the first appends, with the init
         // segment, usually come before the content script has found the video).
+        const t0 = performance.now();
         send({ type: 'append', id: payload.id, offset: payload.offset, init: payload.init, b64: toBase64(payload.bytes) });
+        st.relayMs += performance.now() - t0; // the page's cost of carrying audio to the worker
         if (!port) connect();
       } else if (type === 'audio-track') {
         send({ type: 'track', id: payload.id, source: payload.source, mime: payload.mime });

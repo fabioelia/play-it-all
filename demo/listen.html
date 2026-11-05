@@ -41,6 +41,7 @@
 <script type="module">
   // ?audio=webm (Opus in WebM, as YouTube serves Chrome) | mp4 (AAC in fragmented MP4) | enc (the same, ClearKey-encrypted)
   // ?ahead=30  seconds the player keeps buffered ahead of the playhead
+  // ?video=720 a 1280×720 picture (generated for the benchmark)
   const q = new URLSearchParams(location.search);
   const kind = q.get('audio') || 'webm';
   const AUDIO = { webm: 'audio.webm', mp4: 'audio.mp4', enc: 'audio-enc.mp4' }[kind] || 'audio.webm';
@@ -49,6 +50,7 @@
   const v = document.getElementById('v');
   const logEl = document.getElementById('log');
   const events = (window.cleancutDemoEvents = []);
+  window.cleancutDemoAppend = { ms: 0, n: 0 };
   const log = (type, detail) => {
     events.push({ type, at: v.currentTime, wall: performance.now(), ...detail });
     logEl.textContent = `${v.currentTime.toFixed(2).padStart(6)}s  ${type}${detail ? '  ' + JSON.stringify(detail) : ''}\n` + logEl.textContent;
@@ -89,7 +91,8 @@
   ms.duration = index.duration;
 
   // Every SourceBuffer is added before anything is appended (a MediaSource takes no more once one has data).
-  const files = ['video.webm', AUDIO];
+  const VIDEO = q.get('video') === '720' ? 'video-720.webm' : 'video.webm';
+  const files = [VIDEO, AUDIO];
   const data = await Promise.all(files.map((f) => fetch(BASE + f).then((r) => r.arrayBuffer())));
   const buffers = files.map((f) => ms.addSourceBuffer(index.tracks[f].mime));
 
@@ -98,7 +101,12 @@
     const append = (start, end) => new Promise((resolve, reject) => {
       sb.addEventListener('updateend', resolve, { once: true });
       sb.addEventListener('error', () => reject(new Error(`${file}: append failed (${v.error?.message || 'unknown'})`)), { once: true });
-      sb.appendBuffer(bytes.slice(start, end));
+      const chunk = bytes.slice(start, end);
+      // How long the appendBuffer call itself takes on this thread (benchmarks compare it with and without CleanCut).
+      const t0 = performance.now();
+      sb.appendBuffer(chunk);
+      window.cleancutDemoAppend.ms += performance.now() - t0;
+      window.cleancutDemoAppend.n++;
     });
     await append(0, t.init);
     let next = 0;
