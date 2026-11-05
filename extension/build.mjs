@@ -32,7 +32,8 @@ const FRAMES = FRAME_MATCHES;
 // The community catalog, read straight from GitHub.
 const CATALOG = ['https://raw.githubusercontent.com/*'];
 // Local development: the demo page and a local catalog (npm run dev).
-const DEV = ['http://localhost/*', 'http://127.0.0.1/*'];
+// Left out of store builds (CLEANCUT_STORE=1, see `npm run package`).
+const DEV = process.env.CLEANCUT_STORE ? [] : ['http://localhost/*', 'http://127.0.0.1/*'];
 
 function manifest(target) {
   const m = {

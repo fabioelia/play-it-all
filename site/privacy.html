@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy policy — CleanCut</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site"><div class="wrap"><a class="logo" href="./">✂ CleanCut</a><nav><a href="support.html">Support</a></nav></div></header>
+<main><div class="wrap"><article>
+<h1>Privacy policy</h1>
+<p class="meta">Last updated: November 5, 2026</p>
+
+<p>CleanCut is a browser extension. This page explains exactly what data it handles. The short version: it works from files it downloads and from your own device, and sends nothing about you to us. There is no CleanCut server and no account. We don't sell data, show ads, or build profiles.</p>
+
+<h2>What stays on your device</h2>
+<ul>
+  <li><strong>Subtitles.</strong> The extension reads the subtitle file the video player uses and analyzes it locally to find profanity and scene hints. Subtitle text is never sent to us or to anyone else.</li>
+  <li><strong>Your settings</strong> (chosen rating, per-category choices, actions, timing adjustments). These live in the browser's extension storage. If you're signed in to Chrome with sync turned on, the browser may sync them across your devices as it does for any extension.</li>
+  <li><strong>Your own flags</strong> and a cache of recently used catalog files are stored locally in the extension.</li>
+  <li><strong>An optional debug log</strong> is off unless you tick <em>Record a debug log</em> in the popup. It stays in your browser, is never sent automatically, and is saved to a file only if you click <em>Save debug log</em>.</li>
+</ul>
+
+<h2>What the extension downloads, and from where</h2>
+<ul>
+  <li><strong>The community catalog</strong> is a public set of files in a GitHub repository (<code>fabioelia/play-it-all</code>), read through <code>raw.githubusercontent.com</code>. The extension downloads a small index (it asks only whether it has changed), and then only the file for a title that appears in it. Titles the catalog doesn't know cost no further request.</li>
+  <li>Those requests are made to <strong>GitHub</strong>, which is the host of the files. GitHub can see your IP address, the file requested (which reveals the title) and standard browser details, as with any web request. We don't receive these requests. GitHub's own privacy statement applies to them.</li>
+  <li><strong>Subtitle files</strong> are fetched from the streaming site you're already using (the same file the player loads) to analyze locally.</li>
+  <li>If you point CleanCut at a different catalog address in Options, requests go to that host instead.</li>
+  <li>The extension never uploads the title you watch, your viewing history, your account on any streaming site, or subtitles.</li>
+</ul>
+
+<h2>If you choose to contribute</h2>
+<p>Sharing is always your explicit action. <strong>Share on GitHub</strong> opens a pre-filled GitHub issue; nothing is submitted until you submit it on GitHub. Contributions are <strong>public</strong>, including the title, timestamps, any note you write, and your GitHub username (GitHub's own policies cover your GitHub account). You can ask us to remove a contribution at any time (see Support).</p>
+
+<h2>What we do not do</h2>
+<ul>
+  <li>We don't sell or rent data, and we don't share it with advertisers or data brokers.</li>
+  <li>We don't use data for creditworthiness, lending, or any purpose unrelated to CleanCut's single purpose of filtering scenes.</li>
+  <li>We don't load or run remotely hosted code. All extension code ships inside the extension package.</li>
+</ul>
+
+<h2>Permissions the extension asks for</h2>
+<ul>
+  <li><strong>Access to the supported streaming sites</strong> (Netflix, Prime Video, YouTube, Disney+, HBO Max, Hulu, Apple TV, Paramount+, Peacock, Crunchyroll, Tubi, Pluto TV, The Roku Channel, Plex, Vimeo): to detect what's playing, read its subtitle track, and skip, mute or hide the player.</li>
+  <li><strong>Access to raw.githubusercontent.com:</strong> to read the community catalog.</li>
+  <li><strong>storage:</strong> to save your settings and flags.</li>
+  <li><strong>activeTab / scripting:</strong> so CleanCut can run on a page when you click its toolbar button, and so the popup can control the current tab's player.</li>
+  <li><strong>Optional access to other sites:</strong> asked for at the moment you choose to use a custom catalog address, or to use CleanCut on another page. You can decline.</li>
+</ul>
+
+<h2>Your choices</h2>
+<ul>
+  <li>Uninstalling the extension removes everything stored on your device.</li>
+  <li>To remove something you contributed, open an issue (see Contact below) and we'll delete it from the catalog. Git history keeps old versions; we can ask GitHub to purge personal data on request.</li>
+  <li>You can turn the extension off at any time from its popup.</li>
+</ul>
+
+<h2>Children</h2>
+<p>CleanCut is designed to help families. It is operated for adults and doesn't knowingly collect personal information from children under 13. There are no accounts. Contributions are public on GitHub, so please don't include personal details in notes.</p>
+
+<h2>Changes</h2>
+<p>If this policy changes materially, we'll update the date above and note it in the extension's release notes.</p>
+
+<h2>Contact</h2>
+<p>Open an issue at <a href="https://github.com/fabioelia/play-it-all/issues">github.com/fabioelia/play-it-all/issues</a>. Please don't include personal details in a public issue; if you need to share something private, say so in the issue and we'll arrange a way.</p>
+</article></div></main>
+<footer class="site"><div class="wrap">© CleanCut · <a href="./">Home</a> · <a href="support.html">Support</a></div></footer>
+</body>
+</html>

@@ -323,6 +323,12 @@ of the episode's after every ad break; catalog tags and scan-ahead segments
 then land late by the ads' length. YouTube Shorts are out of scope: looping
 clips in a swipe feed, rarely captioned, never in the catalog.
 
+## Website and publishing
+
+- `site/` is the project website (landing, privacy and support pages), deployed to GitHub Pages by `.github/workflows/site.yml`.
+- [`docs/publishing/CHROME_STORE.md`](docs/publishing/CHROME_STORE.md): submitting to the Chrome Web Store (listing copy, permission justifications, checklist). `npm run package` builds the store zip.
+- [`docs/publishing/OPERATIONS.md`](docs/publishing/OPERATIONS.md): what runs, what it costs, and the upkeep and support effort.
+
 ## Limits and honest caveats
 
 - **Not tested against live Netflix, Prime Video or the other subscription services.** That needs real

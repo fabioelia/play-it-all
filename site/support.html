@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Support — CleanCut</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site"><div class="wrap"><a class="logo" href="./">✂ CleanCut</a><nav><a href="privacy.html">Privacy</a></nav></div></header>
+<main><div class="wrap"><article>
+<h1>Support</h1>
+<p class="meta">Find a fix below, or get in touch.</p>
+
+<h2>Something isn't skipping</h2>
+<details open><summary>Nothing happens on a streaming site</summary><p>Open the CleanCut popup and check that a rating other than <strong>Uncut</strong> is selected and the switch at the top is on. Then check the status line. If it says <em>subtitles not scanned yet</em>, turn on English captions once so the player downloads the subtitle file. Reload the page after installing or updating the extension.</p></details>
+<details><summary>A scene played that shouldn't have</summary><p>Some scenes have no catalog tag and no revealing subtitle line, so there's nothing to act on. Flag it yourself: move the mouse over the player and click <strong>Flag scene</strong> where it starts and <strong>Done</strong> where it ends (or <strong>Last 10 s</strong> right after it), or use <code>Alt+[</code> and <code>Alt+]</code>. Then use <strong>Share on GitHub</strong> in the popup so everyone benefits.</p></details>
+<details><summary>Skips land a bit early or late</summary><p>Some services' clocks drift from the programme time, especially with ad breaks. Use the <strong>Sync</strong> nudge in the popup to shift timing for that title. Where a title's tags were timed on a different service, CleanCut says so and tries to align them automatically.</p></details>
+<details><summary>It worked yesterday and doesn't today</summary><p>Streaming sites change their pages without notice, which can break detection until we update. Please report it with the details below. When a skip can't be performed, CleanCut falls back to muting and hiding the picture for that scene.</p></details>
+<details><summary>There are no community tags for my show</summary><p>The catalog is new, so many titles aren't covered yet. CleanCut still scans the subtitles, and you can flag scenes yourself and share them. <a href="https://github.com/fabioelia/play-it-all/blob/main/CONTRIBUTING.md">Contributing guide</a>.</p></details>
+<details><summary>It doesn't work on my streaming service at all</summary><p>Most services are built against their current players but not yet verified with live accounts, so a report from a real viewer is valuable. Please tell us the service and what you see (see below).</p></details>
+
+<h2>Report a problem</h2>
+<p>Open an issue at <a href="https://github.com/fabioelia/play-it-all/issues">github.com/fabioelia/play-it-all/issues</a>. Please include:</p>
+<ul>
+  <li>Your browser and version, and the CleanCut version (shown in <code>chrome://extensions</code>).</li>
+  <li>The service and the title/episode, and what you expected to happen.</li>
+  <li>What the popup showed: community tags, scan results or an error.</li>
+</ul>
+<p>It helps to tick <em>Record a debug log</em> in the popup, reproduce the problem, and click <em>Save debug log</em>. The log contains page and network details, so read it before posting. Please don't send subtitle files or account passwords. We never need them.</p>
+
+<h2>Delete my data</h2>
+<p>Uninstalling removes everything on your device. There are no accounts. Tags and skip lists you contributed are public files in the catalog; to have one removed, open an issue with the title and we'll delete it.</p>
+</article></div></main>
+<footer class="site"><div class="wrap">© CleanCut · <a href="./">Home</a> · <a href="privacy.html">Privacy</a></div></footer>
+</body>
+</html>
